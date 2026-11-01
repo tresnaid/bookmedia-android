@@ -12,6 +12,9 @@ data class ArchiveItem(
     @SerialName("canonical_url") val canonicalUrl: String = "",
     val username: String = "",
     @SerialName("thumbnail_url") val thumbnailUrl: String = "",
+    @SerialName("local_url") val localUrl: String = "",
+    @SerialName("downloading_local") val downloadingLocal: Boolean = false,
+    @SerialName("local_error") val localError: String = "",
     val status: String = "archived",
     val type: String = "unsorted",
     val error: String = "",
@@ -19,8 +22,12 @@ data class ArchiveItem(
     @SerialName("created_at") val createdAt: String = "",
     val transcoded: Boolean = false
 ) {
+    val hasLocalMedia: Boolean
+        get() = localUrl.isNotBlank()
+
     val isDirectVideo: Boolean
-        get() = submittedUrl.contains(".mp4", ignoreCase = true) ||
+        get() = hasLocalMedia && (localUrl.endsWith(".mp4", ignoreCase = true) || localUrl.endsWith(".mov", ignoreCase = true) || localUrl.endsWith(".webm", ignoreCase = true)) ||
+                submittedUrl.contains(".mp4", ignoreCase = true) ||
                 submittedUrl.contains(".mov", ignoreCase = true) ||
                 canonicalUrl.contains(".mp4", ignoreCase = true) ||
                 canonicalUrl.contains(".mov", ignoreCase = true)
@@ -35,6 +42,16 @@ data class ArchiveItem(
 
     val displayUrl: String
         get() = canonicalUrl.ifBlank { submittedUrl }
+
+    fun resolvePlayableMediaUrl(baseUrl: String): String {
+        return if (hasLocalMedia) {
+            val trimmedBase = baseUrl.trimEnd('/')
+            val trimmedPath = localUrl.trimStart('/')
+            "$trimmedBase/$trimmedPath"
+        } else {
+            submittedUrl.ifBlank { canonicalUrl }
+        }
+    }
 }
 
 enum class MediaFilter(val label: String) {

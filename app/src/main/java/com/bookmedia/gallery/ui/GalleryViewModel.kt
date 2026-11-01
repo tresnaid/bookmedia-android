@@ -243,6 +243,22 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _activeViewerIndex.value = null
     }
 
+    fun requestLocalDownload(rowId: Long) {
+        viewModelScope.launch {
+            repository.triggerLocalDownload(rowId)
+            delay(1000)
+            loadArchives()
+        }
+    }
+
+    fun deleteLocalMedia(rowId: Long) {
+        viewModelScope.launch {
+            repository.deleteLocalMedia(rowId)
+            delay(500)
+            loadArchives()
+        }
+    }
+
     private data class FilterBundle(
         val raw: List<ArchiveItem>,
         val filter: MediaFilter,

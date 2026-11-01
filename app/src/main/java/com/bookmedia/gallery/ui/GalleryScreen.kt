@@ -48,6 +48,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Videocam
@@ -225,6 +227,9 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
             MediaViewerOverlay(
                 items = state.filteredItems,
                 initialIndex = initialIndex,
+                baseUrl = state.serverUrl,
+                onRequestLocalDownload = viewModel::requestLocalDownload,
+                onDeleteLocalMedia = viewModel::deleteLocalMedia,
                 onClose = viewModel::closeViewer
             )
         }
@@ -502,6 +507,9 @@ fun MediaGridThumbnail(
 fun MediaViewerOverlay(
     items: List<ArchiveItem>,
     initialIndex: Int,
+    baseUrl: String,
+    onRequestLocalDownload: (Long) -> Unit,
+    onDeleteLocalMedia: (Long) -> Unit,
     onClose: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
@@ -553,9 +561,9 @@ fun MediaViewerOverlay(
         ) { page ->
             val item = items[page]
             if (item.isVideo) {
-                VideoPlayerPage(item = item)
+                VideoPlayerPage(item = item, baseUrl = baseUrl)
             } else {
-                PhotoViewerPage(item = item)
+                PhotoViewerPage(item = item, baseUrl = baseUrl)
             }
         }
 
@@ -592,11 +600,39 @@ fun MediaViewerOverlay(
                     )
 
                     currentItem?.let {
-                        Text(
-                            text = "${it.platform.uppercase()} #${it.id}",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (it.hasLocalMedia) {
+                                Surface(
+                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Stored Locally",
+                                            tint = Color(0xFF34D399),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "LOCAL",
+                                            color = Color(0xFF34D399),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "${it.platform.uppercase()} #${it.id}",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
 
@@ -623,7 +659,15 @@ fun MediaViewerOverlay(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                if (item.displayUrl.isNotBlank()) {
+                                if (item.hasLocalMedia) {
+                                    Text(
+                                        text = item.localUrl,
+                                        color = Color(0xFF34D399),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                } else if (item.displayUrl.isNotBlank()) {
                                     Text(
                                         text = item.displayUrl,
                                         color = Color(0xFF94A3B8),
@@ -635,6 +679,40 @@ fun MediaViewerOverlay(
                             }
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Download to Local Storage / Delete Local Storage Button
+                                if (item.hasLocalMedia) {
+                                    IconButton(
+                                        onClick = { onDeleteLocalMedia(item.id) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Local Media",
+                                            tint = Color(0xFFF87171),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = { onRequestLocalDownload(item.id) },
+                                        enabled = !item.downloadingLocal
+                                    ) {
+                                        if (item.downloadingLocal) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color.White
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudDownload,
+                                                contentDescription = "Save to Server Storage",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 IconButton(
                                     onClick = {
                                         val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
@@ -667,9 +745,15 @@ fun MediaViewerOverlay(
 }
 
 @Composable
-fun PhotoViewerPage(item: ArchiveItem) {
+fun PhotoViewerPage(item: ArchiveItem, baseUrl: String) {
     val context = LocalContext.current
-    val imageSource = item.submittedUrl.ifBlank { item.thumbnailUrl }
+    val imageSource = if (item.hasLocalMedia) {
+        val trimmedBase = baseUrl.trimEnd('/')
+        val trimmedPath = item.localUrl.trimStart('/')
+        "$trimmedBase/$trimmedPath"
+    } else {
+        item.submittedUrl.ifBlank { item.thumbnailUrl }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -688,11 +772,19 @@ fun PhotoViewerPage(item: ArchiveItem) {
 }
 
 @Composable
-fun VideoPlayerPage(item: ArchiveItem) {
+fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
     val context = LocalContext.current
 
-    if (item.isDirectVideo) {
-        val videoSource = item.submittedUrl.ifBlank { item.canonicalUrl }
+    // If local media file exists, stream it directly from the backend server!
+    val videoSource = if (item.hasLocalMedia) {
+        item.resolvePlayableMediaUrl(baseUrl)
+    } else if (item.isDirectVideo) {
+        item.submittedUrl.ifBlank { item.canonicalUrl }
+    } else {
+        ""
+    }
+
+    if (videoSource.isNotBlank()) {
         val exoPlayer = remember(videoSource) {
             ExoPlayer.Builder(context).build().apply {
                 setMediaItem(MediaItem.fromUri(Uri.parse(videoSource)))

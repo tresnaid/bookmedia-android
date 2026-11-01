@@ -6,6 +6,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +41,20 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
         runCatching {
             val response: List<ArchiveItem> = client.get("$baseUrl/api/archives").body()
             response
+        }
+    }
+
+    suspend fun triggerLocalDownload(rowId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.post("$baseUrl/api/archives/$rowId/download-local")
+            Unit
+        }
+    }
+
+    suspend fun deleteLocalMedia(rowId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            client.post("$baseUrl/api/archives/$rowId/delete-local")
+            Unit
         }
     }
 }
