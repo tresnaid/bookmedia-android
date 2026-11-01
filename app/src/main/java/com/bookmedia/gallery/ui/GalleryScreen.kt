@@ -55,6 +55,10 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Videocam
 import coil.compose.SubcomposeAsyncImage
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -312,7 +316,7 @@ fun GalleryFilterSection(
     selectedPlatform: String?,
     onSelectPlatform: (String?) -> Unit
 ) {
-    // Single clean filter row (All / Photos / Videos + Platforms)
+    // Single clean filter row (All / Local / Photos / Videos + Platform Icons)
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
@@ -325,6 +329,22 @@ fun GalleryFilterSection(
                 selected = selectedFilter == MediaFilter.ALL,
                 onClick = { onSelectFilter(MediaFilter.ALL) },
                 label = { Text("All", fontSize = 12.sp) },
+                colors = chipColors()
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedFilter == MediaFilter.LOCAL,
+                onClick = { onSelectFilter(MediaFilter.LOCAL) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = if (selectedFilter == MediaFilter.LOCAL) Color.White else Color(0xFF10B981)
+                    )
+                },
+                label = { Text("Local", fontSize = 12.sp) },
                 colors = chipColors()
             )
         }
@@ -345,12 +365,19 @@ fun GalleryFilterSection(
             )
         }
 
-        // Platform Filters
+        // Platform Vector Icon Filters (Anti-slop clean geometry)
         items(platforms) { platform ->
             val isSelected = selectedPlatform.equals(platform, ignoreCase = true)
             FilterChip(
                 selected = isSelected,
                 onClick = { onSelectPlatform(platform) },
+                leadingIcon = {
+                    PlatformIcon(
+                        platform = platform,
+                        modifier = Modifier.size(13.dp),
+                        tint = if (isSelected) Color.White else TextPrimary
+                    )
+                },
                 label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                 colors = chipColors()
             )
@@ -834,9 +861,39 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
             }
         }
 
-        DisposableEffect(Unit) {
+        var isPlaying by remember { mutableStateOf(true) }
+        var currentPositionMs by remember { mutableStateOf(0L) }
+        var durationMs by remember { mutableStateOf(0L) }
+        var isDraggingSlider by remember { mutableStateOf(false) }
+        var sliderPosition by remember { mutableStateOf(0f) }
+
+        // Track player playback time and duration
+        DisposableEffect(exoPlayer) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                        durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                    }
+                }
+            }
+            exoPlayer.addListener(listener)
             onDispose {
+                exoPlayer.removeListener(listener)
                 exoPlayer.release()
+            }
+        }
+
+        // Ticker coroutine to update elapsed time every 250ms
+        androidx.compose.runtime.LaunchedEffect(exoPlayer, isDraggingSlider) {
+            while (true) {
+                if (!isDraggingSlider && exoPlayer.playbackState == androidx.media3.common.Player.STATE_READY) {
+                    currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                }
+                delay(250)
             }
         }
 
@@ -853,6 +910,93 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Sleek Antislop Minimalist Video Seeker & Timestamp Bar (Bottom Overlay)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 76.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Play / Pause toggle
+                        IconButton(
+                            onClick = {
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
+                                } else {
+                                    exoPlayer.play()
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Elapsed Time (e.g. 0:14)
+                        val elapsedSec = (if (isDraggingSlider) (sliderPosition * durationMs).toLong() else currentPositionMs) / 1000
+                        val totalSec = durationMs / 1000
+                        val elapsedText = String.format("%d:%02d", elapsedSec / 60, elapsedSec % 60)
+                        val totalText = if (totalSec > 0) String.format("%d:%02d", totalSec / 60, totalSec % 60) else "--:--"
+
+                        Text(
+                            text = elapsedText,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(start = 4.dp, end = 8.dp)
+                        )
+
+                        // Smooth Seeker Slider
+                        Slider(
+                            value = if (isDraggingSlider) sliderPosition else {
+                                if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+                            },
+                            onValueChange = { pos ->
+                                isDraggingSlider = true
+                                sliderPosition = pos
+                            },
+                            onValueChangeFinished = {
+                                if (durationMs > 0) {
+                                    exoPlayer.seekTo((sliderPosition * durationMs).toLong())
+                                }
+                                isDraggingSlider = false
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            )
+                        )
+
+                        // Total Duration (e.g. 1:20)
+                        Text(
+                            text = totalText,
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal,
+                            modifier = Modifier.padding(start = 8.dp, end = 4.dp)
+                        )
+                    }
+                }
+            }
         }
     } else {
         val posterImage = item.thumbnailUrl.ifBlank { item.submittedUrl }

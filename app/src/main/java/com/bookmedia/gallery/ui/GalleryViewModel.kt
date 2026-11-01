@@ -95,6 +95,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val filtered = raw.filter { item ->
             val matchesKind = when (mediaFilter) {
                 MediaFilter.ALL -> true
+                MediaFilter.LOCAL -> item.hasLocalMedia
                 MediaFilter.PHOTOS -> !item.isVideo
                 MediaFilter.VIDEOS -> item.isVideo
             }
