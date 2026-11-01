@@ -56,7 +56,6 @@ data class ArchiveItem(
 
 enum class MediaFilter(val label: String) {
     ALL("All"),
-    LOCAL("Local"),
     PHOTOS("Photos"),
     VIDEOS("Videos")
 }

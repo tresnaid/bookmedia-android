@@ -45,23 +45,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Videocam
-import coil.compose.SubcomposeAsyncImage
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import kotlinx.coroutines.delay
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -71,19 +68,27 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,21 +107,60 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.bookmedia.gallery.data.ServerProfile
 import com.bookmedia.gallery.model.ArchiveItem
 import com.bookmedia.gallery.model.MediaFilter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(viewModel: GalleryViewModel) {
     val state by viewModel.uiState.collectAsState()
     var showSettingsDialog by remember { mutableStateOf(false) }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+    val scope = rememberCoroutineScope()
+
+    // Top Tabs: ALL (0), PHOTOS (1), VIDEOS (2)
+    val tabPagerState = rememberPagerState(
+        initialPage = when (state.selectedMediaFilter) {
+            MediaFilter.ALL -> 0
+            MediaFilter.PHOTOS -> 1
+            MediaFilter.VIDEOS -> 2
+        },
+        pageCount = { 3 }
+    )
+
+    // Sync Pager swipes back to ViewModel
+    LaunchedEffect(tabPagerState) {
+        snapshotFlow { tabPagerState.currentPage }.collect { page ->
+            val filter = when (page) {
+                0 -> MediaFilter.ALL
+                1 -> MediaFilter.PHOTOS
+                else -> MediaFilter.VIDEOS
+            }
+            if (state.selectedMediaFilter != filter) {
+                viewModel.setMediaFilter(filter)
+            }
+        }
+    }
+
+    // Sync ViewModel changes to Pager
+    LaunchedEffect(state.selectedMediaFilter) {
+        val targetPage = when (state.selectedMediaFilter) {
+            MediaFilter.ALL -> 0
+            MediaFilter.PHOTOS -> 1
+            MediaFilter.VIDEOS -> 2
+        }
+        if (tabPagerState.currentPage != targetPage) {
+            tabPagerState.animateScrollToPage(targetPage)
+        }
+    }
 
     BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog) {
         if (state.activeViewerIndex != null) {
@@ -136,19 +180,88 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
             GalleryTopBar(
                 searchQuery = state.searchQuery,
                 onSearchChange = viewModel::setSearchQuery,
-                onRefresh = viewModel::loadArchives,
-                onOpenSettings = { showSettingsDialog = true },
-                activeProfileName = state.activeProfile?.name
+                isLocalOnly = state.isLocalOnly,
+                onToggleLocal = viewModel::toggleLocalOnly,
+                onOpenSettings = { showSettingsDialog = true }
             )
 
-            GalleryFilterSection(
-                selectedFilter = state.selectedMediaFilter,
-                onSelectFilter = viewModel::setMediaFilter,
-                platforms = state.availablePlatforms,
-                selectedPlatform = state.selectedPlatform,
-                onSelectPlatform = viewModel::setPlatform
-            )
+            // Segmented 3-Tab Header (All | Photos | Videos)
+            TabRow(
+                selectedTabIndex = tabPagerState.currentPage,
+                containerColor = BackgroundLight,
+                contentColor = TextPrimary,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[tabPagerState.currentPage]),
+                        color = TextPrimary,
+                        height = 2.dp
+                    )
+                },
+                divider = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(BorderSubtle)
+                    )
+                }
+            ) {
+                listOf("All", "Photos", "Videos").forEachIndexed { index, title ->
+                    val isSelected = tabPagerState.currentPage == index
+                    Tab(
+                        selected = isSelected,
+                        onClick = {
+                            scope.launch { tabPagerState.animateScrollToPage(index) }
+                        },
+                        text = {
+                            Text(
+                                text = title,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isSelected) TextPrimary else TextSecondary
+                            )
+                        }
+                    )
+                }
+            }
 
+            // Platform Vector Icon Chips
+            if (state.availablePlatforms.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = state.selectedPlatform == null,
+                            onClick = { viewModel.setPlatform(null) },
+                            label = { Text("All Platforms", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                            colors = chipColors()
+                        )
+                    }
+                    items(state.availablePlatforms) { platform ->
+                        val isSelected = state.selectedPlatform.equals(platform, ignoreCase = true)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setPlatform(platform) },
+                            leadingIcon = {
+                                PlatformIcon(
+                                    platform = platform,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = if (isSelected) Color.White else TextPrimary
+                                )
+                            },
+                            label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                            colors = chipColors()
+                        )
+                    }
+                }
+            }
+
+            // Side-Swipeable Pager for ALL / PHOTOS / VIDEOS
             val pullRefreshState = rememberPullToRefreshState()
             PullToRefreshBox(
                 isRefreshing = state.isLoading && state.items.isNotEmpty(),
@@ -158,67 +271,72 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    when {
-                        state.isLoading && state.items.isEmpty() -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.align(Alignment.Center),
-                                color = Accent
-                            )
-                        }
-                        state.errorMessage != null && state.items.isEmpty() -> {
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Unable to connect",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = TextPrimary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = state.errorMessage ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondary
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                TextButton(onClick = viewModel::loadArchives) {
-                                    Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                        state.filteredItems.isEmpty() -> {
-                            Text(
-                                text = "No matching media found",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                modifier = Modifier.align(Alignment.Center)
-                            )
-                        }
-                        else -> {
-                            MediaGrid(
-                                items = state.filteredItems,
-                                onItemClick = { index -> viewModel.openViewer(index) }
-                            )
-                        }
-                    }
-
-                    if (state.isLoading && state.items.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.Center),
-                            shape = CircleShape,
-                            color = SurfaceLight.copy(alpha = 0.95f),
-                            shadowElevation = 8.dp
-                        ) {
-                            Box(modifier = Modifier.padding(14.dp)) {
+                HorizontalPager(
+                    state = tabPagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { _ ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        when {
+                            state.isLoading && state.items.isEmpty() -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(28.dp),
-                                    strokeWidth = 2.5.dp,
+                                    modifier = Modifier.align(Alignment.Center),
                                     color = Accent
                                 )
+                            }
+                            state.errorMessage != null && state.items.isEmpty() -> {
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Unable to connect",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = state.errorMessage ?: "",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextSecondary
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    TextButton(onClick = viewModel::loadArchives) {
+                                        Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                            state.filteredItems.isEmpty() -> {
+                                Text(
+                                    text = if (state.isLocalOnly) "No locally stored media found" else "No matching media found",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
+                            else -> {
+                                MediaGrid(
+                                    items = state.filteredItems,
+                                    onItemClick = { index -> viewModel.openViewer(index) }
+                                )
+                            }
+                        }
+
+                        if (state.isLoading && state.items.isNotEmpty()) {
+                            Surface(
+                                modifier = Modifier.align(Alignment.Center),
+                                shape = CircleShape,
+                                color = SurfaceLight.copy(alpha = 0.95f),
+                                shadowElevation = 8.dp
+                            ) {
+                                Box(modifier = Modifier.padding(14.dp)) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(28.dp),
+                                        strokeWidth = 2.5.dp,
+                                        color = Accent
+                                    )
+                                }
                             }
                         }
                     }
@@ -262,9 +380,9 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
 fun GalleryTopBar(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onOpenSettings: () -> Unit,
-    activeProfileName: String?
+    isLocalOnly: Boolean,
+    onToggleLocal: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -297,90 +415,26 @@ fun GalleryTopBar(
             )
         )
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(6.dp))
 
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextPrimary)
+        // Local Storage Mode Toggle Button (Replaces Refresh icon)
+        IconButton(
+            onClick = onToggleLocal,
+            modifier = Modifier
+                .background(
+                    if (isLocalOnly) Color(0xFF10B981).copy(alpha = 0.15f) else Color.Transparent,
+                    CircleShape
+                )
+        ) {
+            Icon(
+                imageVector = if (isLocalOnly) Icons.Default.DownloadDone else Icons.Outlined.FileDownload,
+                contentDescription = if (isLocalOnly) "Showing Local Only" else "Show All Media",
+                tint = if (isLocalOnly) Color(0xFF059669) else TextSecondary
+            )
         }
+
         IconButton(onClick = onOpenSettings) {
             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextPrimary)
-        }
-    }
-}
-
-@Composable
-fun GalleryFilterSection(
-    selectedFilter: MediaFilter,
-    onSelectFilter: (MediaFilter) -> Unit,
-    platforms: List<String>,
-    selectedPlatform: String?,
-    onSelectPlatform: (String?) -> Unit
-) {
-    // Single clean filter row (All / Local / Photos / Videos + Platform Icons)
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 6.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            FilterChip(
-                selected = selectedFilter == MediaFilter.ALL,
-                onClick = { onSelectFilter(MediaFilter.ALL) },
-                label = { Text("All", fontSize = 12.sp) },
-                colors = chipColors()
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedFilter == MediaFilter.LOCAL,
-                onClick = { onSelectFilter(MediaFilter.LOCAL) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp),
-                        tint = if (selectedFilter == MediaFilter.LOCAL) Color.White else Color(0xFF10B981)
-                    )
-                },
-                label = { Text("Local", fontSize = 12.sp) },
-                colors = chipColors()
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedFilter == MediaFilter.PHOTOS,
-                onClick = { onSelectFilter(MediaFilter.PHOTOS) },
-                label = { Text("Photos", fontSize = 12.sp) },
-                colors = chipColors()
-            )
-        }
-        item {
-            FilterChip(
-                selected = selectedFilter == MediaFilter.VIDEOS,
-                onClick = { onSelectFilter(MediaFilter.VIDEOS) },
-                label = { Text("Videos", fontSize = 12.sp) },
-                colors = chipColors()
-            )
-        }
-
-        // Platform Vector Icon Filters (Anti-slop clean geometry)
-        items(platforms) { platform ->
-            val isSelected = selectedPlatform.equals(platform, ignoreCase = true)
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelectPlatform(platform) },
-                leadingIcon = {
-                    PlatformIcon(
-                        platform = platform,
-                        modifier = Modifier.size(13.dp),
-                        tint = if (isSelected) Color.White else TextPrimary
-                    )
-                },
-                label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                colors = chipColors()
-            )
         }
     }
 }
@@ -432,7 +486,6 @@ fun MediaGridThumbnail(
             .clickable(onClick = onClick)
     ) {
         if (imageSource.isBlank()) {
-            // Distinct "No Thumbnail / No Media" state
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -455,7 +508,6 @@ fun MediaGridThumbnail(
                 )
             }
         } else {
-            // Media with loading placeholder vs error fallback
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageSource)
@@ -605,7 +657,7 @@ fun MediaViewerOverlay(
                 alpha = 1f - (progress * 0.5f)
             }
             .offset { IntOffset(0, offsetY.value.roundToInt()) }
-            .background(Color(0xFF0F172A)) // Neutral clean slate dark for immersive viewing
+            .background(Color(0xFF0F172A))
             .draggable(
                 state = draggableState,
                 orientation = Orientation.Vertical,
@@ -704,7 +756,7 @@ fun MediaViewerOverlay(
                     }
                 }
 
-                // Bottom Action & Metadata Bar (Easily Reachable with One Hand)
+                // Bottom Action & Metadata Bar
                 currentItem?.let { item ->
                     Column(
                         modifier = Modifier
@@ -747,7 +799,6 @@ fun MediaViewerOverlay(
                             }
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Download to Local Storage / Delete Local Storage Button
                                 if (item.hasLocalMedia) {
                                     IconButton(
                                         onClick = { onDeleteLocalMedia(item.id) }
@@ -843,7 +894,6 @@ fun PhotoViewerPage(item: ArchiveItem, baseUrl: String) {
 fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
     val context = LocalContext.current
 
-    // If local media file exists, stream it directly from the backend server!
     val videoSource = if (item.hasLocalMedia) {
         item.resolvePlayableMediaUrl(baseUrl)
     } else if (item.isDirectVideo) {
@@ -867,7 +917,6 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
         var isDraggingSlider by remember { mutableStateOf(false) }
         var sliderPosition by remember { mutableStateOf(0f) }
 
-        // Track player playback time and duration
         DisposableEffect(exoPlayer) {
             val listener = object : androidx.media3.common.Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -886,8 +935,7 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
             }
         }
 
-        // Ticker coroutine to update elapsed time every 250ms
-        androidx.compose.runtime.LaunchedEffect(exoPlayer, isDraggingSlider) {
+        LaunchedEffect(exoPlayer, isDraggingSlider) {
             while (true) {
                 if (!isDraggingSlider && exoPlayer.playbackState == androidx.media3.common.Player.STATE_READY) {
                     currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -911,7 +959,7 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Sleek Antislop Minimalist Video Seeker & Timestamp Bar (Bottom Overlay)
+            // Minimalist Video Seeker & Timestamp Bar
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -930,7 +978,6 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Play / Pause toggle
                         IconButton(
                             onClick = {
                                 if (exoPlayer.isPlaying) {
@@ -949,7 +996,6 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                             )
                         }
 
-                        // Elapsed Time (e.g. 0:14)
                         val elapsedSec = (if (isDraggingSlider) (sliderPosition * durationMs).toLong() else currentPositionMs) / 1000
                         val totalSec = durationMs / 1000
                         val elapsedText = String.format("%d:%02d", elapsedSec / 60, elapsedSec % 60)
@@ -963,7 +1009,6 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                             modifier = Modifier.padding(start = 4.dp, end = 8.dp)
                         )
 
-                        // Smooth Seeker Slider
                         Slider(
                             value = if (isDraggingSlider) sliderPosition else {
                                 if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
@@ -986,7 +1031,6 @@ fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
                             )
                         )
 
-                        // Total Duration (e.g. 1:20)
                         Text(
                             text = totalText,
                             color = Color(0xFF94A3B8),
