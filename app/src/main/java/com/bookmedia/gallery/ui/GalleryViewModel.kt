@@ -141,6 +141,25 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         loadArchives()
     }
 
+    private var pollJob: kotlinx.coroutines.Job? = null
+
+    private fun checkAndStartPolling() {
+        val anyDownloading = _rawItems.value.any { it.downloadingLocal }
+        if (anyDownloading && (pollJob == null || pollJob?.isActive == false)) {
+            pollJob = viewModelScope.launch {
+                while (true) {
+                    delay(2000)
+                    repository.fetchArchives().onSuccess { list ->
+                        _rawItems.value = list
+                        if (!list.any { it.downloadingLocal }) {
+                            return@launch
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun loadArchives() {
         viewModelScope.launch {
             _isLoading.value = true
@@ -149,6 +168,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 .onSuccess { list ->
                     _rawItems.value = list
                     _isLoading.value = false
+                    checkAndStartPolling()
                 }
                 .onFailure { error ->
                     _errorMessage.value = error.localizedMessage ?: "Failed to connect to Bookmedia server"
@@ -245,9 +265,16 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun requestLocalDownload(rowId: Long) {
         viewModelScope.launch {
+            // Optimistically mark this item as downloading in the UI immediately without blocking
+            _rawItems.value = _rawItems.value.map {
+                if (it.id == rowId) it.copy(downloadingLocal = true) else it
+            }
             repository.triggerLocalDownload(rowId)
             delay(1000)
-            loadArchives()
+            repository.fetchArchives().onSuccess {
+                _rawItems.value = it
+                checkAndStartPolling()
+            }
         }
     }
 
