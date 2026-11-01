@@ -48,6 +48,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Videocam
+import coil.compose.SubcomposeAsyncImage
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -136,10 +140,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 onSelectFilter = viewModel::setMediaFilter,
                 platforms = state.availablePlatforms,
                 selectedPlatform = state.selectedPlatform,
-                onSelectPlatform = viewModel::setPlatform,
-                topics = state.availableTopics,
-                selectedTopic = state.selectedTopic,
-                onSelectTopic = viewModel::setTopic
+                onSelectPlatform = viewModel::setPlatform
             )
 
             val pullRefreshState = rememberPullToRefreshState()
@@ -304,78 +305,50 @@ fun GalleryFilterSection(
     onSelectFilter: (MediaFilter) -> Unit,
     platforms: List<String>,
     selectedPlatform: String?,
-    onSelectPlatform: (String?) -> Unit,
-    topics: List<String>,
-    selectedTopic: String?,
-    onSelectTopic: (String?) -> Unit
+    onSelectPlatform: (String?) -> Unit
 ) {
-    Column(
+    // Single clean filter row (All / Photos / Videos + Platforms)
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 6.dp)
+            .padding(bottom = 6.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Media Kind Row (All / Photos / Videos)
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = selectedFilter == MediaFilter.ALL,
-                    onClick = { onSelectFilter(MediaFilter.ALL) },
-                    label = { Text("All", fontSize = 12.sp) },
-                    colors = chipColors()
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == MediaFilter.PHOTOS,
-                    onClick = { onSelectFilter(MediaFilter.PHOTOS) },
-                    label = { Text("Photos", fontSize = 12.sp) },
-                    colors = chipColors()
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == MediaFilter.VIDEOS,
-                    onClick = { onSelectFilter(MediaFilter.VIDEOS) },
-                    label = { Text("Videos", fontSize = 12.sp) },
-                    colors = chipColors()
-                )
-            }
-
-            // Platform Filters
-            items(platforms) { platform ->
-                val isSelected = selectedPlatform.equals(platform, ignoreCase = true)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onSelectPlatform(platform) },
-                    label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                    colors = chipColors()
-                )
-            }
+        item {
+            FilterChip(
+                selected = selectedFilter == MediaFilter.ALL,
+                onClick = { onSelectFilter(MediaFilter.ALL) },
+                label = { Text("All", fontSize = 12.sp) },
+                colors = chipColors()
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedFilter == MediaFilter.PHOTOS,
+                onClick = { onSelectFilter(MediaFilter.PHOTOS) },
+                label = { Text("Photos", fontSize = 12.sp) },
+                colors = chipColors()
+            )
+        }
+        item {
+            FilterChip(
+                selected = selectedFilter == MediaFilter.VIDEOS,
+                onClick = { onSelectFilter(MediaFilter.VIDEOS) },
+                label = { Text("Videos", fontSize = 12.sp) },
+                colors = chipColors()
+            )
         }
 
-        // Topics Row (if available)
-        if (topics.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(topics) { topic ->
-                    val isSelected = selectedTopic.equals(topic, ignoreCase = true)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectTopic(topic) },
-                        label = { Text("#$topic", fontSize = 11.sp) },
-                        colors = chipColors()
-                    )
-                }
-            }
+        // Platform Filters
+        items(platforms) { platform ->
+            val isSelected = selectedPlatform.equals(platform, ignoreCase = true)
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSelectPlatform(platform) },
+                label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                colors = chipColors()
+            )
         }
     }
 }
@@ -415,7 +388,9 @@ fun MediaGridThumbnail(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageSource = item.thumbnailUrl.ifBlank { item.submittedUrl }
+    val imageSource = item.thumbnailUrl.ifBlank {
+        if (!item.isVideo && item.submittedUrl.isNotBlank()) item.submittedUrl else ""
+    }
 
     Box(
         modifier = Modifier
@@ -424,15 +399,78 @@ fun MediaGridThumbnail(
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(imageSource)
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        if (imageSource.isBlank()) {
+            // Distinct "No Thumbnail / No Media" state
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFE2E8F0)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.BrokenImage,
+                    contentDescription = "No Media",
+                    tint = Color(0xFF94A3B8),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "NO PREVIEW",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64748B)
+                )
+            }
+        } else {
+            // Media with loading placeholder vs error fallback
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageSource)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                },
+                error = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFE2E8F0)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.Image,
+                            contentDescription = "No Preview",
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "NO THUMB",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            )
+        }
 
         Row(
             modifier = Modifier
