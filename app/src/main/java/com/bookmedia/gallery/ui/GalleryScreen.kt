@@ -625,20 +625,24 @@ fun MediaViewerOverlay(
                 detectTapGestures(onTap = { showControls = !showControls })
             }
     ) {
-        // Post-level HorizontalPager
+        // Post-level HorizontalPager with smooth settle detection
+        val isSettled = !postPagerState.isScrollInProgress
         HorizontalPager(
             state = postPagerState,
+            beyondViewportPageCount = 0,
+            key = { items[it].id },
             modifier = Modifier.fillMaxSize()
         ) { page ->
             val post = items[page]
             val isCurrentPost = postPagerState.currentPage == page
+            val canPlay = isCurrentPost && isSettled
 
             PostMediaViewer(
                 post = post,
                 baseUrl = baseUrl,
-                isActivePost = isCurrentPost,
+                isActivePost = canPlay,
                 onActivePlayerChanged = { player ->
-                    if (isCurrentPost) {
+                    if (canPlay) {
                         activePlayer = player
                     }
                 }
@@ -877,14 +881,16 @@ fun PostMediaViewer(
     } else {
         // In-post Carousel Pager
         val innerPagerState = rememberPagerState(initialPage = 0, pageCount = { mediaEntries.size })
+        val isInnerSettled = !innerPagerState.isScrollInProgress
 
         Box(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
                 state = innerPagerState,
+                beyondViewportPageCount = 0,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
                 val entry = mediaEntries[page]
-                val isEntryActive = isActivePost && innerPagerState.currentPage == page
+                val isEntryActive = isActivePost && innerPagerState.currentPage == page && isInnerSettled
 
                 if (entry.isVideo) {
                     VideoPlayerPage(
