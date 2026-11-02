@@ -43,6 +43,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -474,7 +476,7 @@ fun MediaGridThumbnail(
             )
         }
 
-        // Top-left: Local storage status or in-flight download spinner
+        // Top-left: Local storage status, error, or in-flight download spinner
         if (item.downloadingLocal) {
             Box(
                 modifier = Modifier
@@ -493,6 +495,30 @@ fun MediaGridThumbnail(
                     Text(
                         text = "SAVING",
                         color = Color(0xFF93C5FD),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else if (item.localError.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(5.dp)
+                    .background(Color(0xFFEF4444).copy(alpha = 0.9f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Failed",
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "FAILED",
+                        color = Color.White,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -753,6 +779,14 @@ fun MediaViewerOverlay(
                                         color = Color(0xFF34D399),
                                         fontSize = 11.sp,
                                         maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                } else if (item.localError.isNotBlank()) {
+                                    Text(
+                                        text = "Error: ${item.localError}",
+                                        color = Color(0xFFF87171),
+                                        fontSize = 11.sp,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 } else if (item.displayUrl.isNotBlank()) {
