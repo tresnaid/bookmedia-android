@@ -863,6 +863,7 @@ fun PostMediaViewer(
         if (entry.isVideo) {
             VideoPlayerPage(
                 videoUrl = entry.url,
+                thumbnailUrl = post.thumbnailUrl.ifBlank { post.submittedUrl },
                 isActive = isActivePost,
                 onPlayerReady = onActivePlayerChanged
             )
@@ -888,6 +889,7 @@ fun PostMediaViewer(
                 if (entry.isVideo) {
                     VideoPlayerPage(
                         videoUrl = entry.url,
+                        thumbnailUrl = post.thumbnailUrl.ifBlank { post.submittedUrl },
                         isActive = isEntryActive,
                         onPlayerReady = { player ->
                             if (isEntryActive) {
@@ -954,19 +956,44 @@ fun PhotoViewerPage(imageUrl: String) {
 @Composable
 fun VideoPlayerPage(
     videoUrl: String,
+    thumbnailUrl: String = "",
     isActive: Boolean,
     onPlayerReady: (ExoPlayer?) -> Unit = {}
 ) {
     val context = LocalContext.current
 
+    // If video is not downloaded to local yet or source is unavailable, render the thumbnail cover
     if (videoUrl.isBlank()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No video source", color = Color.White.copy(alpha = 0.6f))
+        DisposableEffect(Unit) {
+            onPlayerReady(null)
+            onDispose { }
+        }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(thumbnailUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = "Media not downloaded yet",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 13.sp
+                )
+            }
         }
         return
     }
 
-    // Only create and run ExoPlayer when this page is actually active
+    // Only create and run ExoPlayer when this page is actively in focus
     if (!isActive) {
         DisposableEffect(Unit) {
             onPlayerReady(null)
@@ -978,7 +1005,19 @@ fun VideoPlayerPage(
                 .background(Color.Black),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
+            if (thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(thumbnailUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
+            }
         }
         return
     }
@@ -995,6 +1034,8 @@ fun VideoPlayerPage(
         onPlayerReady(exoPlayer)
         onDispose {
             onPlayerReady(null)
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             exoPlayer.release()
         }
     }
