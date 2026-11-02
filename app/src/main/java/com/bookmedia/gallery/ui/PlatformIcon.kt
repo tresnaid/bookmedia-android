@@ -117,6 +117,37 @@ fun PlatformIcon(
                     center = Offset(w * 0.5f, h * 0.5f)
                 )
             }
+            "upload" -> {
+                // Clean cloud upload / upward arrow icon
+                val strokeW = w * 0.12f
+                // Arrow stem
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.5f, h * 0.78f),
+                    end = Offset(w * 0.5f, h * 0.22f),
+                    strokeWidth = strokeW,
+                    cap = StrokeCap.Round
+                )
+                // Arrow head
+                val arrowPath = Path().apply {
+                    moveTo(w * 0.25f, h * 0.44f)
+                    lineTo(w * 0.5f, h * 0.20f)
+                    lineTo(w * 0.75f, h * 0.44f)
+                }
+                drawPath(
+                    path = arrowPath,
+                    color = color,
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                )
+                // Bottom tray bar
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.20f, h * 0.86f),
+                    end = Offset(w * 0.80f, h * 0.86f),
+                    strokeWidth = strokeW,
+                    cap = StrokeCap.Round
+                )
+            }
             else -> {
                 // Fallback elegant hashtag / globe
                 val strokeW = w * 0.12f

@@ -35,6 +35,7 @@ data class ArchiveItem(
     @SerialName("local_error") val localError: String = "",
     val status: String = "archived",
     val type: String = "unsorted",
+    val text: String = "",
     val error: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
     @SerialName("created_at") val createdAt: String = "",
@@ -67,7 +68,11 @@ data class ArchiveItem(
                 (thumbnailUrl.isNotEmpty() && !submittedUrl.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)))
 
     val effectiveTitle: String
-        get() = if (username.isNotBlank()) "@$username" else platform.uppercase()
+        get() = when {
+            text.isNotBlank() -> text
+            username.isNotBlank() && username != "pc_upload" -> "@$username"
+            else -> platform.uppercase()
+        }
 
     val displayUrl: String
         get() = canonicalUrl.ifBlank { submittedUrl }

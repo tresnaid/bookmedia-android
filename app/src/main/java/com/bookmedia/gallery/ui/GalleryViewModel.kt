@@ -154,7 +154,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 while (true) {
                     delay(2000)
                     repository.fetchArchives().onSuccess { list ->
-                        _rawItems.value = list
+                        _rawItems.value = list.sortedByDescending { it.id }
                         if (!list.any { it.downloadingLocal }) {
                             return@launch
                         }
@@ -170,7 +170,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             _errorMessage.value = null
             repository.fetchArchives()
                 .onSuccess { list ->
-                    _rawItems.value = list
+                    _rawItems.value = list.sortedByDescending { it.id }
                     _isLoading.value = false
                     checkAndStartPolling()
                 }

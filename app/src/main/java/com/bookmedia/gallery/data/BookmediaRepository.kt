@@ -41,7 +41,7 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
 
     suspend fun fetchArchives(): Result<List<ArchiveItem>> = withContext(Dispatchers.IO) {
         runCatching {
-            val response: List<ArchiveItem> = client.get("$baseUrl/api/archives").body()
+            val response: List<ArchiveItem> = client.get("$baseUrl/api/archives?sort=id&order=desc").body()
             response
         }
     }
