@@ -1036,9 +1036,18 @@ fun VideoPlayerPage(
         }
     }
 
+    var isFirstFrameRendered by remember(videoUrl) { mutableStateOf(false) }
+
     DisposableEffect(exoPlayer) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onRenderedFirstFrame() {
+                isFirstFrameRendered = true
+            }
+        }
+        exoPlayer.addListener(listener)
         onPlayerReady(exoPlayer)
         onDispose {
+            exoPlayer.removeListener(listener)
             onPlayerReady(null)
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
@@ -1059,6 +1068,18 @@ fun VideoPlayerPage(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Seamless cover: Keep thumbnail displayed on top until the exact first video frame renders
+        if (!isFirstFrameRendered && thumbnailUrl.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(thumbnailUrl)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
