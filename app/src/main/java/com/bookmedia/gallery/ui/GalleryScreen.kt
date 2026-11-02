@@ -26,13 +26,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -50,6 +48,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Image
@@ -88,7 +87,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,7 +97,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -107,60 +104,20 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
-import com.bookmedia.gallery.data.ServerProfile
 import com.bookmedia.gallery.model.ArchiveItem
+import com.bookmedia.gallery.model.CarouselMediaEntry
 import com.bookmedia.gallery.model.MediaFilter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryScreen(viewModel: GalleryViewModel) {
     val state by viewModel.uiState.collectAsState()
     var showSettingsDialog by remember { mutableStateOf(false) }
-
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
-    val scope = rememberCoroutineScope()
-
-    // Top Tabs: ALL (0), PHOTOS (1), VIDEOS (2)
-    val tabPagerState = rememberPagerState(
-        initialPage = when (state.selectedMediaFilter) {
-            MediaFilter.ALL -> 0
-            MediaFilter.PHOTOS -> 1
-            MediaFilter.VIDEOS -> 2
-        },
-        pageCount = { 3 }
-    )
-
-    // Sync Pager swipes back to ViewModel
-    LaunchedEffect(tabPagerState) {
-        snapshotFlow { tabPagerState.currentPage }.collect { page ->
-            val filter = when (page) {
-                0 -> MediaFilter.ALL
-                1 -> MediaFilter.PHOTOS
-                else -> MediaFilter.VIDEOS
-            }
-            if (state.selectedMediaFilter != filter) {
-                viewModel.setMediaFilter(filter)
-            }
-        }
-    }
-
-    // Sync ViewModel changes to Pager
-    LaunchedEffect(state.selectedMediaFilter) {
-        val targetPage = when (state.selectedMediaFilter) {
-            MediaFilter.ALL -> 0
-            MediaFilter.PHOTOS -> 1
-            MediaFilter.VIDEOS -> 2
-        }
-        if (tabPagerState.currentPage != targetPage) {
-            tabPagerState.animateScrollToPage(targetPage)
-        }
-    }
 
     BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog) {
         if (state.activeViewerIndex != null) {
@@ -185,14 +142,18 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 onOpenSettings = { showSettingsDialog = true }
             )
 
-            // Segmented 3-Tab Header (All | Photos | Videos)
+            // Segmented Tab Filter (All | Photos | Videos)
+            // Instant tab switching without outer HorizontalPager overhead
+            val tabs = listOf(MediaFilter.ALL, MediaFilter.PHOTOS, MediaFilter.VIDEOS)
+            val selectedTabIndex = tabs.indexOf(state.selectedMediaFilter).coerceAtLeast(0)
+
             TabRow(
-                selectedTabIndex = tabPagerState.currentPage,
+                selectedTabIndex = selectedTabIndex,
                 containerColor = BackgroundLight,
                 contentColor = TextPrimary,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[tabPagerState.currentPage]),
+                        Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
                         color = TextPrimary,
                         height = 2.dp
                     )
@@ -206,16 +167,14 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                     )
                 }
             ) {
-                listOf("All", "Photos", "Videos").forEachIndexed { index, title ->
-                    val isSelected = tabPagerState.currentPage == index
+                tabs.forEachIndexed { index, filter ->
+                    val isSelected = selectedTabIndex == index
                     Tab(
                         selected = isSelected,
-                        onClick = {
-                            scope.launch { tabPagerState.animateScrollToPage(index) }
-                        },
+                        onClick = { viewModel.setMediaFilter(filter) },
                         text = {
                             Text(
-                                text = title,
+                                text = filter.label,
                                 fontSize = 13.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (isSelected) TextPrimary else TextSecondary
@@ -225,7 +184,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 }
             }
 
-            // Platform Vector Icon Chips
+            // Platform Vector Icon Filter Chips
             if (state.availablePlatforms.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier
@@ -261,7 +220,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 }
             }
 
-            // Side-Swipeable Pager for ALL / PHOTOS / VIDEOS
+            // High Performance Pull-to-Refresh Grid
             val pullRefreshState = rememberPullToRefreshState()
             PullToRefreshBox(
                 isRefreshing = state.isLoading && state.items.isNotEmpty(),
@@ -271,72 +230,67 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                HorizontalPager(
-                    state = tabPagerState,
-                    modifier = Modifier.fillMaxSize()
-                ) { _ ->
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        when {
-                            state.isLoading && state.items.isEmpty() -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.align(Alignment.Center),
-                                    color = Accent
-                                )
-                            }
-                            state.errorMessage != null && state.items.isEmpty() -> {
-                                Column(
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = "Unable to connect",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = state.errorMessage ?: "",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = TextSecondary
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    TextButton(onClick = viewModel::loadArchives) {
-                                        Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                            }
-                            state.filteredItems.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when {
+                        state.isLoading && state.items.isEmpty() -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.align(Alignment.Center),
+                                color = Accent
+                            )
+                        }
+                        state.errorMessage != null && state.items.isEmpty() -> {
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Text(
-                                    text = if (state.isLocalOnly) "No locally stored media found" else "No matching media found",
+                                    text = "Unable to connect",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = state.errorMessage ?: "",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondary,
-                                    modifier = Modifier.align(Alignment.Center)
+                                    color = TextSecondary
                                 )
-                            }
-                            else -> {
-                                MediaGrid(
-                                    items = state.filteredItems,
-                                    onItemClick = { index -> viewModel.openViewer(index) }
-                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                TextButton(onClick = viewModel::loadArchives) {
+                                    Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
+                        state.filteredItems.isEmpty() -> {
+                            Text(
+                                text = if (state.isLocalOnly) "No locally stored media found" else "No matching media found",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
+                        else -> {
+                            MediaGrid(
+                                items = state.filteredItems,
+                                onItemClick = { index -> viewModel.openViewer(index) }
+                            )
+                        }
+                    }
 
-                        if (state.isLoading && state.items.isNotEmpty()) {
-                            Surface(
-                                modifier = Modifier.align(Alignment.Center),
-                                shape = CircleShape,
-                                color = SurfaceLight.copy(alpha = 0.95f),
-                                shadowElevation = 8.dp
-                            ) {
-                                Box(modifier = Modifier.padding(14.dp)) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(28.dp),
-                                        strokeWidth = 2.5.dp,
-                                        color = Accent
-                                    )
-                                }
+                    if (state.isLoading && state.items.isNotEmpty()) {
+                        Surface(
+                            modifier = Modifier.align(Alignment.Center),
+                            shape = CircleShape,
+                            color = SurfaceLight.copy(alpha = 0.95f),
+                            shadowElevation = 8.dp
+                        ) {
+                            Box(modifier = Modifier.padding(14.dp)) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = Accent
+                                )
                             }
                         }
                     }
@@ -417,7 +371,7 @@ fun GalleryTopBar(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        // Local Storage Mode Toggle Button (Replaces Refresh icon)
+        // Local Storage Mode Toggle Button
         IconButton(
             onClick = onToggleLocal,
             modifier = Modifier
@@ -508,51 +462,15 @@ fun MediaGridThumbnail(
                 )
             }
         } else {
-            SubcomposeAsyncImage(
+            // High performance AsyncImage with zero subcomposition overhead
+            AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageSource)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(SurfaceElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-                },
-                error = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFE2E8F0)),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.Image,
-                            contentDescription = "No Preview",
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "NO THUMB",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                }
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -585,38 +503,85 @@ fun MediaGridThumbnail(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(5.dp)
-                    .background(Color(0xFF065F46).copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .background(Color(0xFF10B981).copy(alpha = 0.85f), CircleShape)
+                    .size(16.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "LOCAL",
-                    color = Color(0xFFA7F3D0),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Downloaded locally",
+                    tint = Color.White,
+                    modifier = Modifier.size(11.dp)
                 )
             }
         }
 
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (item.isVideo) {
-                Box(
-                    modifier = Modifier
-                        .size(18.dp)
-                        .background(Color.Black.copy(alpha = 0.65f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
+        // Top-right: Carousel Stack Badge (for multi-media posts)
+        if (item.isCarousel) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(5.dp)
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
+                        imageVector = Icons.Default.Collections,
+                        contentDescription = "Carousel",
                         tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "${item.totalMediaCount}",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+
+        // Bottom overlays: Video indicator & platform tag
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.35f))
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (item.isVideo) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = "Video",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "VIDEO",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                Text(
+                    text = item.platform.uppercase(),
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -632,9 +597,9 @@ fun MediaViewerOverlay(
     onDeleteLocalMedia: (Long) -> Unit,
     onClose: () -> Unit
 ) {
-    val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
+    val postPagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
     var showControls by remember { mutableStateOf(true) }
-    val currentItem = items.getOrNull(pagerState.currentPage)
+    val currentPost = items.getOrNull(postPagerState.currentPage)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -655,8 +620,8 @@ fun MediaViewerOverlay(
             .graphicsLayer {
                 val progress = (abs(offsetY.value) / 600f).coerceIn(0f, 1f)
                 alpha = 1f - (progress * 0.5f)
+                translationY = offsetY.value
             }
-            .offset { IntOffset(0, offsetY.value.roundToInt()) }
             .background(Color(0xFF0F172A))
             .draggable(
                 state = draggableState,
@@ -675,16 +640,19 @@ fun MediaViewerOverlay(
                 detectTapGestures(onTap = { showControls = !showControls })
             }
     ) {
+        // Post-level HorizontalPager
         HorizontalPager(
-            state = pagerState,
+            state = postPagerState,
             modifier = Modifier.fillMaxSize()
         ) { page ->
-            val item = items[page]
-            if (item.isVideo) {
-                VideoPlayerPage(item = item, baseUrl = baseUrl)
-            } else {
-                PhotoViewerPage(item = item, baseUrl = baseUrl)
-            }
+            val post = items[page]
+            val isCurrentPost = postPagerState.currentPage == page
+
+            PostMediaViewer(
+                post = post,
+                baseUrl = baseUrl,
+                isActivePost = isCurrentPost
+            )
         }
 
         // Overlay Chrome
@@ -713,13 +681,13 @@ fun MediaViewerOverlay(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "${pagerState.currentPage + 1} / ${items.size}",
+                        text = "Post ${postPagerState.currentPage + 1} of ${items.size}",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
 
-                    currentItem?.let {
+                    currentPost?.let {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (it.hasLocalMedia) {
                                 Surface(
@@ -757,7 +725,7 @@ fun MediaViewerOverlay(
                 }
 
                 // Bottom Action & Metadata Bar
-                currentItem?.let { item ->
+                currentPost?.let { item ->
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -781,7 +749,7 @@ fun MediaViewerOverlay(
                                 )
                                 if (item.hasLocalMedia) {
                                     Text(
-                                        text = item.localUrl,
+                                        text = item.localUrl.ifBlank { "Stored locally (${item.totalMediaCount} files)" },
                                         color = Color(0xFF34D399),
                                         fontSize = 11.sp,
                                         maxLines = 1,
@@ -863,24 +831,80 @@ fun MediaViewerOverlay(
     }
 }
 
+/**
+ * Handles single or multiple media items within a single post
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PhotoViewerPage(item: ArchiveItem, baseUrl: String) {
-    val context = LocalContext.current
-    val imageSource = if (item.hasLocalMedia) {
-        val trimmedBase = baseUrl.trimEnd('/')
-        val trimmedPath = item.localUrl.trimStart('/')
-        "$trimmedBase/$trimmedPath"
-    } else {
-        item.submittedUrl.ifBlank { item.thumbnailUrl }
-    }
+fun PostMediaViewer(
+    post: ArchiveItem,
+    baseUrl: String,
+    isActivePost: Boolean
+) {
+    val mediaEntries = remember(post, baseUrl) { post.resolveMediaList(baseUrl) }
 
+    if (mediaEntries.size <= 1) {
+        val entry = mediaEntries.firstOrNull() ?: CarouselMediaEntry(1, "", false, "")
+        if (entry.isVideo) {
+            VideoPlayerPage(videoUrl = entry.url, isActive = isActivePost)
+        } else {
+            PhotoViewerPage(imageUrl = entry.url)
+        }
+    } else {
+        // In-post Carousel Pager
+        val innerPagerState = rememberPagerState(initialPage = 0, pageCount = { mediaEntries.size })
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = innerPagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val entry = mediaEntries[page]
+                val isEntryActive = isActivePost && innerPagerState.currentPage == page
+
+                if (entry.isVideo) {
+                    VideoPlayerPage(videoUrl = entry.url, isActive = isEntryActive)
+                } else {
+                    PhotoViewerPage(imageUrl = entry.url)
+                }
+            }
+
+            // Carousel Dot Indicator
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 85.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(mediaEntries.size) { index ->
+                    val isCurrent = innerPagerState.currentPage == index
+                    Box(
+                        modifier = Modifier
+                            .size(if (isCurrent) 6.dp else 5.dp)
+                            .background(
+                                color = if (isCurrent) Color.White else Color.White.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PhotoViewerPage(imageUrl: String) {
+    val context = LocalContext.current
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(imageSource)
+                .data(imageUrl)
                 .crossfade(true)
                 .build(),
             contentDescription = null,
@@ -891,204 +915,194 @@ fun PhotoViewerPage(item: ArchiveItem, baseUrl: String) {
 }
 
 @Composable
-fun VideoPlayerPage(item: ArchiveItem, baseUrl: String) {
+fun VideoPlayerPage(videoUrl: String, isActive: Boolean) {
     val context = LocalContext.current
 
-    val videoSource = if (item.hasLocalMedia) {
-        item.resolvePlayableMediaUrl(baseUrl)
-    } else if (item.isDirectVideo) {
-        item.submittedUrl.ifBlank { item.canonicalUrl }
-    } else {
-        ""
+    if (videoUrl.isBlank()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No video source", color = Color.White.copy(alpha = 0.6f))
+        }
+        return
     }
 
-    if (videoSource.isNotBlank()) {
-        val exoPlayer = remember(videoSource) {
-            ExoPlayer.Builder(context).build().apply {
-                setMediaItem(MediaItem.fromUri(Uri.parse(videoSource)))
-                prepare()
-                playWhenReady = true
-            }
+    // Only create and run ExoPlayer when this page is actually active
+    if (!isActive) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
         }
+        return
+    }
 
-        var isPlaying by remember { mutableStateOf(true) }
-        var currentPositionMs by remember { mutableStateOf(0L) }
-        var durationMs by remember { mutableStateOf(0L) }
-        var isDraggingSlider by remember { mutableStateOf(false) }
-        var sliderPosition by remember { mutableStateOf(0f) }
-
-        DisposableEffect(exoPlayer) {
-            val listener = object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    isPlaying = playing
-                }
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == androidx.media3.common.Player.STATE_READY) {
-                        durationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    }
-                }
-            }
-            exoPlayer.addListener(listener)
-            onDispose {
-                exoPlayer.removeListener(listener)
-                exoPlayer.release()
-            }
+    val exoPlayer = remember(videoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
+            prepare()
+            playWhenReady = true
         }
+    }
 
-        LaunchedEffect(exoPlayer, isDraggingSlider) {
-            while (true) {
-                if (!isDraggingSlider && exoPlayer.playbackState == androidx.media3.common.Player.STATE_READY) {
-                    currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Seeker Bar with decoupled position polling
+        VideoSeekerBar(
+            exoPlayer = exoPlayer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 76.dp, start = 16.dp, end = 16.dp)
+        )
+    }
+}
+
+@Composable
+fun VideoSeekerBar(
+    exoPlayer: ExoPlayer,
+    modifier: Modifier = Modifier
+) {
+    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
+    var currentPositionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    var isDraggingSlider by remember { mutableStateOf(false) }
+    var sliderPosition by remember { mutableStateOf(0f) }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == androidx.media3.common.Player.STATE_READY) {
                     durationMs = exoPlayer.duration.coerceAtLeast(0L)
                 }
-                delay(250)
             }
         }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+        }
+    }
 
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+    LaunchedEffect(exoPlayer, isDraggingSlider) {
+        while (true) {
+            if (!isDraggingSlider && exoPlayer.playbackState == androidx.media3.common.Player.STATE_READY) {
+                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                durationMs = exoPlayer.duration.coerceAtLeast(0L)
+            }
+            delay(250)
+        }
+    }
+
+    Box(modifier = modifier) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.75f),
+            shape = RoundedCornerShape(20.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Minimalist Video Seeker & Timestamp Bar
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 76.dp, start = 16.dp, end = 16.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.75f),
-                    shape = RoundedCornerShape(20.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                if (exoPlayer.isPlaying) {
-                                    exoPlayer.pause()
-                                } else {
-                                    exoPlayer.play()
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                IconButton(
+                    onClick = {
+                        if (exoPlayer.isPlaying) {
+                            exoPlayer.pause()
+                        } else {
+                            exoPlayer.play()
                         }
-
-                        val elapsedSec = (if (isDraggingSlider) (sliderPosition * durationMs).toLong() else currentPositionMs) / 1000
-                        val totalSec = durationMs / 1000
-                        val elapsedText = String.format("%d:%02d", elapsedSec / 60, elapsedSec % 60)
-                        val totalText = if (totalSec > 0) String.format("%d:%02d", totalSec / 60, totalSec % 60) else "--:--"
-
-                        Text(
-                            text = elapsedText,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(start = 4.dp, end = 8.dp)
-                        )
-
-                        Slider(
-                            value = if (isDraggingSlider) sliderPosition else {
-                                if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-                            },
-                            onValueChange = { pos ->
-                                isDraggingSlider = true
-                                sliderPosition = pos
-                            },
-                            onValueChangeFinished = {
-                                if (durationMs > 0) {
-                                    exoPlayer.seekTo((sliderPosition * durationMs).toLong())
-                                }
-                                isDraggingSlider = false
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = Color.White,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                            )
-                        )
-
-                        Text(
-                            text = totalText,
-                            color = Color(0xFF94A3B8),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(start = 8.dp, end = 4.dp)
-                        )
-                    }
-                }
-            }
-        }
-    } else {
-        val posterImage = item.thumbnailUrl.ifBlank { item.submittedUrl }
-
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(posterImage)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            Surface(
-                onClick = {
-                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
-                    context.startActivity(browserIntent)
-                },
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.65f),
-                shadowElevation = 8.dp,
-                modifier = Modifier.size(72.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Watch on ${item.platform.uppercase()}",
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                Text(
+                    text = formatDuration(currentPositionMs),
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Slider(
+                    value = if (isDraggingSlider) sliderPosition else {
+                        if (durationMs > 0) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+                    },
+                    onValueChange = { newPos ->
+                        isDraggingSlider = true
+                        sliderPosition = newPos
+                    },
+                    onValueChangeFinished = {
+                        isDraggingSlider = false
+                        val targetMs = (sliderPosition * durationMs).toLong()
+                        exoPlayer.seekTo(targetMs)
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = Color.White,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                )
+
+                Text(
+                    text = formatDuration(durationMs),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
 }
 
+fun formatDuration(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
 @Composable
 fun ServerProfilesDialog(
-    profiles: List<ServerProfile>,
-    activeProfile: ServerProfile?,
-    onSelectProfile: (ServerProfile) -> Unit,
+    profiles: List<com.bookmedia.gallery.data.ServerProfile>,
+    activeProfile: com.bookmedia.gallery.data.ServerProfile?,
+    onSelectProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
     onAddOrUpdateProfile: (name: String, url: String, id: String?) -> Unit,
-    onDeleteProfile: (ServerProfile) -> Unit,
+    onDeleteProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
     onDismiss: () -> Unit
 ) {
     var isAdding by remember { mutableStateOf(false) }
@@ -1128,7 +1142,7 @@ fun ServerProfilesDialog(
 
                     if (!isAdding) {
                         IconButton(onClick = { isAdding = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Profile", tint = TextPrimary)
+                            Icon(androidx.compose.material.icons.Icons.Default.Add, contentDescription = "Add Profile", tint = TextPrimary)
                         }
                     }
                 }
@@ -1186,7 +1200,7 @@ fun ServerProfilesDialog(
                         }
                     }
                 } else {
-                    LazyColumn(
+                    androidx.compose.foundation.lazy.LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -1221,7 +1235,7 @@ fun ServerProfilesDialog(
                                             if (isActive) {
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Icon(
-                                                    imageVector = Icons.Default.Check,
+                                                    imageVector = androidx.compose.material.icons.Icons.Default.Check,
                                                     contentDescription = "Active",
                                                     tint = TextPrimary,
                                                     modifier = Modifier.size(16.dp)
