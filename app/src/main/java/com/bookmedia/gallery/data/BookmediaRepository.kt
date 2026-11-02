@@ -11,6 +11,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:8080") {
@@ -41,6 +43,24 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
         runCatching {
             val response: List<ArchiveItem> = client.get("$baseUrl/api/archives").body()
             response
+        }
+    }
+
+    suspend fun submitUrl(url: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val escapedUrl = url.replace("\"", "\\\"")
+            val connection = URL("$baseUrl/api/submit").openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.doOutput = true
+            connection.connectTimeout = 15000
+            connection.readTimeout = 15000
+            connection.outputStream.use { os ->
+                val body = "{\"urls\":\"$escapedUrl\",\"keep_local\":true}".toByteArray(Charsets.UTF_8)
+                os.write(body)
+            }
+            val stream = if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
+            stream?.bufferedReader()?.use { it.readText() } ?: "OK"
         }
     }
 

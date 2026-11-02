@@ -1,6 +1,8 @@
 package com.bookmedia.gallery
 
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,12 +21,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        handleIntent(intent)
+
         setContent {
             MaterialTheme(
                 colorScheme = GalleryColorScheme,
                 typography = GalleryTypography
             ) {
                 GalleryScreen(viewModel = viewModel)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (!sharedText.isNullOrBlank()) {
+                viewModel.handleSharedText(sharedText) { message ->
+                    Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

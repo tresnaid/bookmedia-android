@@ -277,6 +277,25 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun handleSharedText(sharedText: String, onResult: (String) -> Unit) {
+        val urlRegex = Regex("https?://[\\w\\d:#@%/;$()~_?\\+-=\\\\.&]+")
+        val match = urlRegex.find(sharedText)
+        val extractedUrl = match?.value ?: sharedText.trim()
+        if (extractedUrl.isBlank()) return
+
+        viewModelScope.launch {
+            repository.submitUrl(extractedUrl)
+                .onSuccess {
+                    onResult("Queued for download & archive")
+                    delay(1500)
+                    loadArchives()
+                }
+                .onFailure {
+                    onResult("Submit failed: ${it.localizedMessage ?: "Network error"}")
+                }
+        }
+    }
+
     fun deleteLocalMedia(rowId: Long) {
         viewModelScope.launch {
             repository.deleteLocalMedia(rowId)
