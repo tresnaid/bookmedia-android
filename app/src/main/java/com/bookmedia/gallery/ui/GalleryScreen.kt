@@ -962,7 +962,7 @@ fun VideoPlayerPage(
 ) {
     val context = LocalContext.current
 
-    // If video is not downloaded to local yet or source is unavailable, render the thumbnail cover
+    // If video is not downloaded to local yet or source is unavailable, ALWAYS render the thumbnail cover
     if (videoUrl.isBlank()) {
         DisposableEffect(Unit) {
             onPlayerReady(null)
@@ -993,7 +993,7 @@ fun VideoPlayerPage(
         return
     }
 
-    // Only create and run ExoPlayer when this page is actively in focus
+    // When swiping and page is not yet active, show thumbnail preview instead of black screen
     if (!isActive) {
         DisposableEffect(Unit) {
             onPlayerReady(null)

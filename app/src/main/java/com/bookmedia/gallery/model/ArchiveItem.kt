@@ -107,15 +107,16 @@ data class ArchiveItem(
 
         if (mediaItems.isNotEmpty()) {
             return mediaItems.map { mi ->
+                val isVid = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true)
                 val fullUrl = if (hasLocalMedia && localUrl.isNotBlank()) {
                     "$trimmedBase/media/$id/${mi.filename}"
                 } else {
-                    thumbnailUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+                    "" // Empty videoUrl so VideoPlayerPage shows the thumbnail cover
                 }
                 CarouselMediaEntry(
                     index = mi.index,
                     url = fullUrl,
-                    isVideo = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true),
+                    isVideo = isVid,
                     filename = mi.filename
                 )
             }
