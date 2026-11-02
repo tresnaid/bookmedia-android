@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
@@ -141,6 +142,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 onSearchChange = viewModel::setSearchQuery,
                 isLocalOnly = state.isLocalOnly,
                 onToggleLocal = viewModel::toggleLocalOnly,
+                sortOrder = state.sortOrder,
+                onToggleSort = viewModel::toggleSortOrder,
                 onOpenSettings = { showSettingsDialog = true }
             )
 
@@ -338,6 +341,8 @@ fun GalleryTopBar(
     onSearchChange: (String) -> Unit,
     isLocalOnly: Boolean,
     onToggleLocal: () -> Unit,
+    sortOrder: SortOrder,
+    onToggleSort: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Row(
@@ -371,7 +376,25 @@ fun GalleryTopBar(
             )
         )
 
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Sort Order Toggle Button (Newest vs Oldest)
+        IconButton(
+            onClick = onToggleSort,
+            modifier = Modifier
+                .background(
+                    if (sortOrder == SortOrder.OLDEST) Accent.copy(alpha = 0.12f) else Color.Transparent,
+                    CircleShape
+                )
+        ) {
+            Icon(
+                imageVector = Icons.Default.SwapVert,
+                contentDescription = "Sort: ${sortOrder.label}",
+                tint = if (sortOrder == SortOrder.OLDEST) Accent else TextSecondary
+            )
+        }
+
+        Spacer(modifier = Modifier.width(2.dp))
 
         // Local Storage Mode Toggle Button
         IconButton(

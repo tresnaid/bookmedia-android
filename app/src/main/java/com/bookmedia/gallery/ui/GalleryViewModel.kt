@@ -18,11 +18,17 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+enum class SortOrder(val label: String) {
+    NEWEST("Newest"),
+    OLDEST("Oldest")
+}
+
 data class GalleryUiState(
     val items: List<ArchiveItem> = emptyList(),
     val filteredItems: List<ArchiveItem> = emptyList(),
     val availablePlatforms: List<String> = emptyList(),
     val selectedMediaFilter: MediaFilter = MediaFilter.ALL,
+    val sortOrder: SortOrder = SortOrder.NEWEST,
     val isLocalOnly: Boolean = false,
     val selectedPlatform: String? = null,
     val searchQuery: String = "",
@@ -41,6 +47,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private val _rawItems = MutableStateFlow<List<ArchiveItem>>(emptyList())
     private val _selectedMediaFilter = MutableStateFlow(MediaFilter.ALL)
+    private val _sortOrder = MutableStateFlow(SortOrder.NEWEST)
     private val _isLocalOnly = MutableStateFlow(false)
     private val _selectedPlatform = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
@@ -56,11 +63,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val filterBundleFlow = combine(
         _rawItems,
         _selectedMediaFilter,
+        _sortOrder,
         _isLocalOnly,
-        _selectedPlatform,
+        _selectedPlatform
+    ) { raw, filter, sort, localOnly, platform ->
+        FilterBundle(raw, filter, sort, localOnly, platform)
+    }
+
+    private val queryAndBundleFlow = combine(
+        filterBundleFlow,
         _searchQuery
-    ) { raw, filter, localOnly, platform, query ->
-        FilterBundle(raw, filter, localOnly, platform, query)
+    ) { bundle, query ->
+        QueryBundle(bundle, query)
     }
 
     private val loadingFlow = combine(
@@ -81,15 +95,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     val uiState: StateFlow<GalleryUiState> = combine(
-        filterBundleFlow,
+        queryAndBundleFlow,
         appStateFlow
-    ) { bundle, stateBundle ->
+    ) { queryBundle, stateBundle ->
+        val bundle = queryBundle.bundle
+        val query = queryBundle.query.trim().lowercase()
+
         // Only include items that are successfully archived (strictly exclude failed items)
         val raw = bundle.raw.filter { it.status.equals("archived", ignoreCase = true) }
         val mediaFilter = bundle.filter
+        val sortOrder = bundle.sortOrder
         val localOnly = bundle.localOnly
         val platform = bundle.platform
-        val query = bundle.query.trim().lowercase()
 
         val platforms = raw.map { it.platform.lowercase() }.filter { it.isNotBlank() }.distinct().sorted()
 
@@ -115,6 +132,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                     item.displayUrl.lowercase().contains(query)
 
             matchesLocal && matchesKind && matchesPlatform && matchesQuery
+        }.let { list ->
+            when (sortOrder) {
+                SortOrder.NEWEST -> list.sortedByDescending { it.id }
+                SortOrder.OLDEST -> list.sortedBy { it.id }
+            }
         }
 
         GalleryUiState(
@@ -122,9 +144,10 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             filteredItems = filtered,
             availablePlatforms = platforms,
             selectedMediaFilter = mediaFilter,
+            sortOrder = sortOrder,
             isLocalOnly = localOnly,
             selectedPlatform = platform,
-            searchQuery = bundle.query,
+            searchQuery = queryBundle.query,
             isLoading = stateBundle.loading,
             errorMessage = stateBundle.error,
             activeViewerIndex = stateBundle.viewerIdx,
@@ -238,6 +261,18 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleSortOrder() {
+        triggerFilterLoading()
+        _sortOrder.value = if (_sortOrder.value == SortOrder.NEWEST) SortOrder.OLDEST else SortOrder.NEWEST
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        if (_sortOrder.value != order) {
+            triggerFilterLoading()
+            _sortOrder.value = order
+        }
+    }
+
     fun toggleLocalOnly() {
         triggerFilterLoading()
         _isLocalOnly.value = !_isLocalOnly.value
@@ -304,12 +339,17 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private data class QueryBundle(
+        val bundle: FilterBundle,
+        val query: String
+    )
+
     private data class FilterBundle(
         val raw: List<ArchiveItem>,
         val filter: MediaFilter,
+        val sortOrder: SortOrder,
         val localOnly: Boolean,
-        val platform: String?,
-        val query: String
+        val platform: String?
     )
 
     private data class StateBundle(
