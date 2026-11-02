@@ -568,48 +568,6 @@ fun MediaGridThumbnail(
                 }
             }
         }
-
-        // Bottom overlays: Video indicator & platform tag
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.35f))
-                .padding(horizontal = 6.dp, vertical = 3.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (item.isVideo) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Videocam,
-                            contentDescription = "Video",
-                            tint = Color.White,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "VIDEO",
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
-                }
-
-                Text(
-                    text = item.platform.uppercase(),
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
     }
 }
 
@@ -625,6 +583,7 @@ fun MediaViewerOverlay(
 ) {
     val postPagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
     var showControls by remember { mutableStateOf(true) }
+    var activePlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     val currentPost = items.getOrNull(postPagerState.currentPage)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -677,7 +636,12 @@ fun MediaViewerOverlay(
             PostMediaViewer(
                 post = post,
                 baseUrl = baseUrl,
-                isActivePost = isCurrentPost
+                isActivePost = isCurrentPost,
+                onActivePlayerChanged = { player ->
+                    if (isCurrentPost) {
+                        activePlayer = player
+                    }
+                }
             )
         }
 
@@ -750,111 +714,127 @@ fun MediaViewerOverlay(
                     }
                 }
 
-                // Bottom Action & Metadata Bar
-                currentPost?.let { item ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .background(Color(0xFF0F172A).copy(alpha = 0.85f))
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.effectiveTitle,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (item.hasLocalMedia) {
-                                    Text(
-                                        text = item.localUrl.ifBlank { "Stored locally (${item.totalMediaCount} files)" },
-                                        color = Color(0xFF34D399),
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                } else if (item.localError.isNotBlank()) {
-                                    Text(
-                                        text = "Error: ${item.localError}",
-                                        color = Color(0xFFF87171),
-                                        fontSize = 11.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                } else if (item.displayUrl.isNotBlank()) {
-                                    Text(
-                                        text = item.displayUrl,
-                                        color = Color(0xFF94A3B8),
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
+                // Bottom Controls: Video Seeker (on top) + Detail Metadata Bar
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                ) {
+                    // Video Seeker attached directly on top of metadata bar
+                    activePlayer?.let { player ->
+                        VideoSeekerBar(
+                            exoPlayer = player,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (item.hasLocalMedia) {
-                                    IconButton(
-                                        onClick = { onDeleteLocalMedia(item.id) }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete Local Media",
-                                            tint = Color(0xFFF87171),
-                                            modifier = Modifier.size(22.dp)
+                    // Metadata & Actions Bar
+                    currentPost?.let { item ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF0F172A).copy(alpha = 0.85f))
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.effectiveTitle,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (item.hasLocalMedia) {
+                                        Text(
+                                            text = item.localUrl.ifBlank { "Stored locally (${item.totalMediaCount} files)" },
+                                            color = Color(0xFF34D399),
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    } else if (item.localError.isNotBlank()) {
+                                        Text(
+                                            text = "Error: ${item.localError}",
+                                            color = Color(0xFFF87171),
+                                            fontSize = 11.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    } else if (item.displayUrl.isNotBlank()) {
+                                        Text(
+                                            text = item.displayUrl,
+                                            color = Color(0xFF94A3B8),
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                } else {
-                                    IconButton(
-                                        onClick = { onRequestLocalDownload(item.id) },
-                                        enabled = !item.downloadingLocal
-                                    ) {
-                                        if (item.downloadingLocal) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(18.dp),
-                                                strokeWidth = 2.dp,
-                                                color = Color.White
-                                            )
-                                        } else {
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (item.hasLocalMedia) {
+                                        IconButton(
+                                            onClick = { onDeleteLocalMedia(item.id) }
+                                        ) {
                                             Icon(
-                                                imageVector = Icons.Default.CloudDownload,
-                                                contentDescription = "Save to Server Storage",
-                                                tint = Color.White,
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete Local Media",
+                                                tint = Color(0xFFF87171),
                                                 modifier = Modifier.size(22.dp)
                                             )
                                         }
+                                    } else {
+                                        IconButton(
+                                            onClick = { onRequestLocalDownload(item.id) },
+                                            enabled = !item.downloadingLocal
+                                        ) {
+                                            if (item.downloadingLocal) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = Color.White
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudDownload,
+                                                    contentDescription = "Save to Server Storage",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        }
                                     }
-                                }
 
-                                IconButton(
-                                    onClick = {
-                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
-                                        context.startActivity(browserIntent)
+                                    IconButton(
+                                        onClick = {
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
+                                            context.startActivity(browserIntent)
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.OpenInNew,
+                                            contentDescription = "Open Source",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(22.dp)
+                                        )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.OpenInNew,
-                                        contentDescription = "Open Source",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
 
-                                IconButton(onClick = onClose) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Close",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(24.dp)
-                                    )
+                                    IconButton(onClick = onClose) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Close",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -873,15 +853,24 @@ fun MediaViewerOverlay(
 fun PostMediaViewer(
     post: ArchiveItem,
     baseUrl: String,
-    isActivePost: Boolean
+    isActivePost: Boolean,
+    onActivePlayerChanged: (ExoPlayer?) -> Unit = {}
 ) {
     val mediaEntries = remember(post, baseUrl) { post.resolveMediaList(baseUrl) }
 
     if (mediaEntries.size <= 1) {
         val entry = mediaEntries.firstOrNull() ?: CarouselMediaEntry(1, "", false, "")
         if (entry.isVideo) {
-            VideoPlayerPage(videoUrl = entry.url, isActive = isActivePost)
+            VideoPlayerPage(
+                videoUrl = entry.url,
+                isActive = isActivePost,
+                onPlayerReady = onActivePlayerChanged
+            )
         } else {
+            DisposableEffect(Unit) {
+                onActivePlayerChanged(null)
+                onDispose { }
+            }
             PhotoViewerPage(imageUrl = entry.url)
         }
     } else {
@@ -897,8 +886,22 @@ fun PostMediaViewer(
                 val isEntryActive = isActivePost && innerPagerState.currentPage == page
 
                 if (entry.isVideo) {
-                    VideoPlayerPage(videoUrl = entry.url, isActive = isEntryActive)
+                    VideoPlayerPage(
+                        videoUrl = entry.url,
+                        isActive = isEntryActive,
+                        onPlayerReady = { player ->
+                            if (isEntryActive) {
+                                onActivePlayerChanged(player)
+                            }
+                        }
+                    )
                 } else {
+                    if (isEntryActive) {
+                        DisposableEffect(Unit) {
+                            onActivePlayerChanged(null)
+                            onDispose { }
+                        }
+                    }
                     PhotoViewerPage(imageUrl = entry.url)
                 }
             }
@@ -949,7 +952,11 @@ fun PhotoViewerPage(imageUrl: String) {
 }
 
 @Composable
-fun VideoPlayerPage(videoUrl: String, isActive: Boolean) {
+fun VideoPlayerPage(
+    videoUrl: String,
+    isActive: Boolean,
+    onPlayerReady: (ExoPlayer?) -> Unit = {}
+) {
     val context = LocalContext.current
 
     if (videoUrl.isBlank()) {
@@ -961,6 +968,10 @@ fun VideoPlayerPage(videoUrl: String, isActive: Boolean) {
 
     // Only create and run ExoPlayer when this page is actually active
     if (!isActive) {
+        DisposableEffect(Unit) {
+            onPlayerReady(null)
+            onDispose { }
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -981,7 +992,9 @@ fun VideoPlayerPage(videoUrl: String, isActive: Boolean) {
     }
 
     DisposableEffect(exoPlayer) {
+        onPlayerReady(exoPlayer)
         onDispose {
+            onPlayerReady(null)
             exoPlayer.release()
         }
     }
@@ -998,15 +1011,6 @@ fun VideoPlayerPage(videoUrl: String, isActive: Boolean) {
                 }
             },
             modifier = Modifier.fillMaxSize()
-        )
-
-        // Seeker Bar with decoupled position polling
-        VideoSeekerBar(
-            exoPlayer = exoPlayer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 76.dp, start = 16.dp, end = 16.dp)
         )
     }
 }
@@ -1051,15 +1055,15 @@ fun VideoSeekerBar(
 
     Box(modifier = modifier) {
         Surface(
-            color = Color.Black.copy(alpha = 0.75f),
-            shape = RoundedCornerShape(20.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+            color = Color.Black.copy(alpha = 0.7f),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
