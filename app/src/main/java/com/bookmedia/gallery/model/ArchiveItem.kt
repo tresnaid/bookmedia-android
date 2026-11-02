@@ -73,14 +73,19 @@ data class ArchiveItem(
         get() = canonicalUrl.ifBlank { submittedUrl }
 
     fun resolvePlayableMediaUrl(baseUrl: String): String {
-        return if (hasLocalMedia) {
+        if (hasLocalMedia) {
             val fileUrl = if (localUrl.isNotBlank()) localUrl else (localFiles.firstOrNull()?.url ?: "")
             val trimmedBase = baseUrl.trimEnd('/')
             val trimmedPath = fileUrl.trimStart('/')
-            "$trimmedBase/$trimmedPath"
-        } else {
-            submittedUrl.ifBlank { canonicalUrl }
+            return "$trimmedBase/$trimmedPath"
         }
+        val directUrl = submittedUrl.ifBlank { canonicalUrl }
+        // Only return if it's an actual direct playable media stream (not a webpage like tiktok.com/@user/video/...)
+        val playableExts = listOf(".mp4", ".mov", ".webm", ".mkv", ".m4v", ".m3u8")
+        if (playableExts.any { directUrl.contains(it, ignoreCase = true) }) {
+            return directUrl
+        }
+        return ""
     }
 
     /**
@@ -118,11 +123,16 @@ data class ArchiveItem(
 
         // Single fallback item
         val singleUrl = resolvePlayableMediaUrl(baseUrl)
+        val finalUrl = if (isVideo && singleUrl.isBlank()) {
+            thumbnailUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+        } else {
+            singleUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+        }
         return listOf(
             CarouselMediaEntry(
                 index = 1,
-                url = singleUrl,
-                isVideo = isVideo,
+                url = finalUrl,
+                isVideo = isVideo && singleUrl.isNotBlank(),
                 filename = ""
             )
         )
