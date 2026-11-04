@@ -278,6 +278,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                         else -> {
                             MediaGrid(
                                 items = state.filteredItems,
+                                baseUrl = state.serverUrl,
                                 onItemClick = { index -> viewModel.openViewer(index) }
                             )
                         }
@@ -429,6 +430,7 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 @Composable
 fun MediaGrid(
     items: List<ArchiveItem>,
+    baseUrl: String,
     onItemClick: (Int) -> Unit
 ) {
     LazyVerticalGrid(
@@ -441,6 +443,7 @@ fun MediaGrid(
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
             MediaGridThumbnail(
                 item = item,
+                baseUrl = baseUrl,
                 onClick = { onItemClick(index) }
             )
         }
@@ -450,12 +453,11 @@ fun MediaGrid(
 @Composable
 fun MediaGridThumbnail(
     item: ArchiveItem,
+    baseUrl: String,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageSource = item.thumbnailUrl.ifBlank {
-        if (!item.isVideo && item.submittedUrl.isNotBlank()) item.submittedUrl else ""
-    }
+    val imageSource = item.resolveThumbnailUrl(baseUrl)
 
     Box(
         modifier = Modifier
@@ -528,19 +530,19 @@ fun MediaGridThumbnail(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(5.dp)
-                    .background(Color(0xFFEF4444).copy(alpha = 0.9f), RoundedCornerShape(4.dp))
+                    .background(Color(0xFFD97706).copy(alpha = 0.9f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Warning,
-                        contentDescription = "Failed",
+                        contentDescription = "Local Cache Error",
                         tint = Color.White,
                         modifier = Modifier.size(10.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "FAILED",
+                        text = "LOCAL ERR",
                         color = Color.White,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold
@@ -890,7 +892,7 @@ fun PostMediaViewer(
         if (entry.isVideo) {
             VideoPlayerPage(
                 videoUrl = entry.url,
-                thumbnailUrl = post.thumbnailUrl.ifBlank { post.submittedUrl },
+                thumbnailUrl = post.resolveThumbnailUrl(baseUrl),
                 isActive = isActivePost,
                 onPlayerReady = onActivePlayerChanged
             )
@@ -918,7 +920,7 @@ fun PostMediaViewer(
                 if (entry.isVideo) {
                     VideoPlayerPage(
                         videoUrl = entry.url,
-                        thumbnailUrl = post.thumbnailUrl.ifBlank { post.submittedUrl },
+                        thumbnailUrl = post.resolveThumbnailUrl(baseUrl),
                         isActive = isEntryActive,
                         onPlayerReady = { player ->
                             if (isEntryActive) {

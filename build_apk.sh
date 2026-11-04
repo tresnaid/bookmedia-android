@@ -25,14 +25,15 @@ echo "Accepting SDK licenses..."
 yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
 echo "Installing Android platforms and build-tools..."
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1
+rm -rf "$ANDROID_HOME/.temp"
+sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0" > /dev/null 2>&1
 
 echo "Installing Gradle..."
-if [ ! -d "/opt/gradle" ]; then
+if [ ! -f "/opt/gradle/bin/gradle" ]; then
     wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -O /tmp/gradle.zip
-    unzip -q /tmp/gradle.zip -d /opt
-    mv /opt/gradle-8.10.2 /opt/gradle
-    rm -f /tmp/gradle.zip
+    unzip -q /tmp/gradle.zip -d /tmp/gradle-extract
+    cp -r /tmp/gradle-extract/gradle-8.10.2/* /opt/gradle/
+    rm -rf /tmp/gradle*
 fi
 export PATH="/opt/gradle/bin:$PATH"
 

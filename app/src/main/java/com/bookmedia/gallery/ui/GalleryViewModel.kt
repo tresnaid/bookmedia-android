@@ -175,7 +175,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         if (anyDownloading && (pollJob == null || pollJob?.isActive == false)) {
             pollJob = viewModelScope.launch {
                 while (true) {
-                    delay(2000)
+                    delay(5000)
                     repository.fetchArchives().onSuccess { list ->
                         _rawItems.value = list.sortedByDescending { it.id }
                         if (!list.any { it.downloadingLocal }) {

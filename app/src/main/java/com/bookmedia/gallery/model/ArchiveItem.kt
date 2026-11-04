@@ -41,12 +41,15 @@ data class ArchiveItem(
     @SerialName("created_at") val createdAt: String = "",
     val transcoded: Boolean = false
 ) {
+    val validLocalFiles: List<LocalMediaFile>
+        get() = localFiles.filter { it.filename != "thumb.jpg" }
+
     val hasLocalMedia: Boolean
-        get() = localUrl.isNotBlank() || localFiles.isNotEmpty()
+        get() = (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg")) || validLocalFiles.isNotEmpty()
 
     val totalMediaCount: Int
         get() = when {
-            localFiles.isNotEmpty() -> localFiles.size
+            validLocalFiles.isNotEmpty() -> validLocalFiles.size
             mediaItems.isNotEmpty() -> mediaItems.size
             mediaCount > 1 -> mediaCount
             else -> 1
@@ -56,7 +59,7 @@ data class ArchiveItem(
         get() = totalMediaCount > 1
 
     val isDirectVideo: Boolean
-        get() = hasLocalMedia && (localUrl.endsWith(".mp4", ignoreCase = true) || localUrl.endsWith(".mov", ignoreCase = true) || localUrl.endsWith(".webm", ignoreCase = true) || localFiles.any { it.type == "video" }) ||
+        get() = (hasLocalMedia && (localUrl.endsWith(".mp4", ignoreCase = true) || localUrl.endsWith(".mov", ignoreCase = true) || localUrl.endsWith(".webm", ignoreCase = true) || validLocalFiles.any { it.type == "video" })) ||
                 submittedUrl.contains(".mp4", ignoreCase = true) ||
                 submittedUrl.contains(".mov", ignoreCase = true) ||
                 canonicalUrl.contains(".mp4", ignoreCase = true) ||
@@ -65,7 +68,9 @@ data class ArchiveItem(
     val isVideo: Boolean
         get() = platform.lowercase() in listOf("tiktok", "douyin") ||
                 isDirectVideo ||
-                (thumbnailUrl.isNotEmpty() && !submittedUrl.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)))
+                (platform.lowercase() != "upload" &&
+                 thumbnailUrl.isNotEmpty() &&
+                 !submittedUrl.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)))
 
     val effectiveTitle: String
         get() = when {
@@ -77,9 +82,28 @@ data class ArchiveItem(
     val displayUrl: String
         get() = canonicalUrl.ifBlank { submittedUrl }
 
+    fun resolveThumbnailUrl(baseUrl: String): String {
+        val raw = thumbnailUrl.ifBlank {
+            if (!isVideo && submittedUrl.isNotBlank() && !submittedUrl.startsWith("file://")) {
+                submittedUrl
+            } else if (validLocalFiles.isNotEmpty()) {
+                validLocalFiles.firstOrNull()?.url ?: ""
+            } else if (mediaItems.isNotEmpty()) {
+                "/media/$id/${mediaItems.first().filename}"
+            } else {
+                ""
+            }
+        }
+        if (raw.isBlank()) return ""
+        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+        val trimmedBase = baseUrl.trimEnd('/')
+        val trimmedPath = raw.trimStart('/')
+        return "$trimmedBase/$trimmedPath"
+    }
+
     fun resolvePlayableMediaUrl(baseUrl: String): String {
         if (hasLocalMedia) {
-            val fileUrl = if (localUrl.isNotBlank()) localUrl else (localFiles.firstOrNull()?.url ?: "")
+            val fileUrl = if (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg")) localUrl else (validLocalFiles.firstOrNull()?.url ?: "")
             val trimmedBase = baseUrl.trimEnd('/')
             val trimmedPath = fileUrl.trimStart('/')
             return "$trimmedBase/$trimmedPath"
@@ -98,8 +122,9 @@ data class ArchiveItem(
      */
     fun resolveMediaList(baseUrl: String): List<CarouselMediaEntry> {
         val trimmedBase = baseUrl.trimEnd('/')
-        if (localFiles.isNotEmpty()) {
-            return localFiles.mapIndexed { idx, lf ->
+        val actualFiles = validLocalFiles
+        if (actualFiles.isNotEmpty()) {
+            return actualFiles.mapIndexed { idx, lf ->
                 val fullUrl = "$trimmedBase/${lf.url.trimStart('/')}"
                 CarouselMediaEntry(
                     index = idx + 1,
@@ -113,11 +138,7 @@ data class ArchiveItem(
         if (mediaItems.isNotEmpty()) {
             return mediaItems.map { mi ->
                 val isVid = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true)
-                val fullUrl = if (hasLocalMedia && localUrl.isNotBlank()) {
-                    "$trimmedBase/media/$id/${mi.filename}"
-                } else {
-                    "" // Empty videoUrl so VideoPlayerPage shows the thumbnail cover
-                }
+                val fullUrl = "$trimmedBase/media/$id/${mi.filename}"
                 CarouselMediaEntry(
                     index = mi.index,
                     url = fullUrl,
@@ -130,7 +151,7 @@ data class ArchiveItem(
         // Single fallback item
         val singleUrl = resolvePlayableMediaUrl(baseUrl)
         val finalUrl = if (isVideo && singleUrl.isBlank()) {
-            thumbnailUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+            resolveThumbnailUrl(baseUrl).ifBlank { submittedUrl.ifBlank { canonicalUrl } }
         } else {
             singleUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
         }
