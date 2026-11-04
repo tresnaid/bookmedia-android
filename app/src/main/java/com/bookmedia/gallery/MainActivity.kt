@@ -8,6 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
+import coil.Coil
+import coil.ImageLoader
+import coil.decode.VideoFrameDecoder
 import com.bookmedia.gallery.ui.GalleryColorScheme
 import com.bookmedia.gallery.ui.GalleryScreen
 import com.bookmedia.gallery.ui.GalleryTypography
@@ -20,6 +23,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val imageLoader = ImageLoader.Builder(applicationContext)
+            .components {
+                add(VideoFrameDecoder.Factory())
+            }
+            .crossfade(true)
+            .build()
+        Coil.setImageLoader(imageLoader)
 
         handleIntent(intent)
 

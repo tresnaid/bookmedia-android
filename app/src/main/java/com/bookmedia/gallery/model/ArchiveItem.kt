@@ -83,16 +83,26 @@ data class ArchiveItem(
         get() = canonicalUrl.ifBlank { submittedUrl }
 
     fun resolveThumbnailUrl(baseUrl: String): String {
-        val raw = thumbnailUrl.ifBlank {
-            if (!isVideo && submittedUrl.isNotBlank() && !submittedUrl.startsWith("file://")) {
-                submittedUrl
-            } else if (validLocalFiles.isNotEmpty()) {
-                validLocalFiles.firstOrNull()?.url ?: ""
-            } else if (mediaItems.isNotEmpty()) {
-                "/media/$id/${mediaItems.first().filename}"
-            } else {
-                ""
+        val raw = when {
+            validLocalFiles.any { it.type == "photo" } -> {
+                validLocalFiles.first { it.type == "photo" }.url
             }
+            hasLocalMedia -> {
+                "/media/$id/thumb.jpg"
+            }
+            thumbnailUrl.startsWith("/media/") -> {
+                thumbnailUrl
+            }
+            mediaItems.isNotEmpty() -> {
+                "/media/$id/thumb.jpg"
+            }
+            thumbnailUrl.isNotBlank() -> {
+                thumbnailUrl
+            }
+            !isVideo && submittedUrl.isNotBlank() && !submittedUrl.startsWith("file://") -> {
+                submittedUrl
+            }
+            else -> ""
         }
         if (raw.isBlank()) return ""
         if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
