@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -47,7 +48,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Collections
@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
@@ -99,12 +100,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
@@ -121,13 +124,19 @@ import kotlin.math.abs
 fun GalleryScreen(viewModel: GalleryViewModel) {
     val state by viewModel.uiState.collectAsState()
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showBrowseOptions by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
 
-    BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog) {
+    BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog || showBrowseOptions || showSearch) {
         if (state.activeViewerIndex != null) {
             viewModel.closeViewer()
         } else if (showSettingsDialog) {
             showSettingsDialog = false
+        } else if (showBrowseOptions) {
+            showBrowseOptions = false
+        } else if (showSearch) {
+            showSearch = false
         }
     }
 
@@ -139,91 +148,42 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             GalleryTopBar(
-                searchQuery = state.searchQuery,
-                onSearchChange = viewModel::setSearchQuery,
                 isLocalOnly = state.isLocalOnly,
                 onToggleLocal = viewModel::toggleLocalOnly,
                 sortOrder = state.sortOrder,
                 onToggleSort = viewModel::toggleSortOrder,
-                onOpenSettings = { showSettingsDialog = true }
+                onOpenSearch = { showSearch = !showSearch },
+                onOpenBrowseOptions = { showBrowseOptions = true }
             )
 
-            // Segmented Tab Filter (All | Photos | Videos)
-            // Instant tab switching without outer HorizontalPager overhead
-            val tabs = listOf(MediaFilter.ALL, MediaFilter.PHOTOS, MediaFilter.VIDEOS)
-            val selectedTabIndex = tabs.indexOf(state.selectedMediaFilter).coerceAtLeast(0)
-
-            TabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = BackgroundLight,
-                contentColor = TextPrimary,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                        color = TextPrimary,
-                        height = 2.dp
-                    )
-                },
-                divider = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(BorderSubtle)
-                    )
-                }
-            ) {
-                tabs.forEachIndexed { index, filter ->
-                    val isSelected = selectedTabIndex == index
-                    Tab(
-                        selected = isSelected,
-                        onClick = { viewModel.setMediaFilter(filter) },
-                        text = {
-                            Text(
-                                text = filter.label,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSelected) TextPrimary else TextSecondary
-                            )
-                        }
-                    )
-                }
-            }
-
-            // Platform Vector Icon Filter Chips
-            if (state.availablePlatforms.isNotEmpty()) {
-                LazyRow(
+            if (showSearch) {
+                OutlinedTextField(
+                    value = state.searchQuery,
+                    onValueChange = viewModel::setSearchQuery,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 4.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        FilterChip(
-                            selected = state.selectedPlatform == null,
-                            onClick = { viewModel.setPlatform(null) },
-                            label = { Text("All Platforms", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                            colors = chipColors()
-                        )
-                    }
-                    items(state.availablePlatforms) { platform ->
-                        val isSelected = state.selectedPlatform.equals(platform, ignoreCase = true)
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.setPlatform(platform) },
-                            leadingIcon = {
-                                PlatformIcon(
-                                    platform = platform,
-                                    modifier = Modifier.size(13.dp),
-                                    tint = if (isSelected) Color.White else TextPrimary
-                                )
-                            },
-                            label = { Text(platform.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                            colors = chipColors()
-                        )
-                    }
-                }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    placeholder = { Text("Search author or URL", fontSize = 13.sp, color = TextSecondary) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            viewModel.setSearchQuery("")
+                            showSearch = false
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close search", tint = TextPrimary)
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = SurfaceLight,
+                        unfocusedContainerColor = SurfaceLight,
+                        focusedBorderColor = BorderSubtle,
+                        unfocusedBorderColor = BorderSubtle,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    )
+                )
             }
 
             // High Performance Pull-to-Refresh Grid
@@ -280,6 +240,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                             MediaGrid(
                                 items = state.filteredItems,
                                 baseUrl = state.serverUrl,
+                                gridAspect = state.gridAspect,
+                                onThumbnailError = viewModel::ensureThumbnail,
                                 onItemClick = { index -> viewModel.openViewer(index) }
                             )
                         }
@@ -318,7 +280,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
         }
 
         if (showSettingsDialog) {
-            ServerProfilesDialog(
+            ServerProfilesScreen(
                 profiles = state.profiles,
                 activeProfile = state.activeProfile,
                 onSelectProfile = {
@@ -334,88 +296,277 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 onDismiss = { showSettingsDialog = false }
             )
         }
+
+        if (showBrowseOptions) {
+            BrowseOptionsSheet(
+                selectedMediaFilter = state.selectedMediaFilter,
+                availablePlatforms = state.availablePlatforms,
+                selectedPlatform = state.selectedPlatform,
+                isLocalOnly = state.isLocalOnly,
+                sortOrder = state.sortOrder,
+                gridAspect = state.gridAspect,
+                onApply = { filter, platform, localOnly, order, aspect ->
+                    viewModel.setMediaFilter(filter)
+                    viewModel.setPlatform(platform)
+                    viewModel.setLocalOnly(localOnly)
+                    viewModel.setSortOrder(order)
+                    viewModel.setGridAspect(aspect)
+                },
+                onOpenServerProfiles = {
+                    showBrowseOptions = false
+                    showSettingsDialog = true
+                },
+                onDismiss = { showBrowseOptions = false }
+            )
+        }
     }
 }
 
 @Composable
 fun GalleryTopBar(
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
     isLocalOnly: Boolean,
     onToggleLocal: () -> Unit,
     sortOrder: SortOrder,
     onToggleSort: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSearch: () -> Unit,
+    onOpenBrowseOptions: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .height(56.dp)
+            .background(BackgroundLight)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchChange,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text("Search author, keyword, id...", fontSize = 13.sp, color = TextSecondary) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SurfaceLight,
-                unfocusedContainerColor = SurfaceElevated,
-                focusedBorderColor = BorderSubtle,
-                unfocusedBorderColor = Color.Transparent,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary
-            )
+        Text(
+            text = "Archie",
+            fontSize = 22.sp,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Medium,
+            color = TextPrimary,
+            modifier = Modifier.weight(1f)
         )
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        // Sort Order Toggle Button (Newest vs Oldest)
-        IconButton(
-            onClick = onToggleSort,
-            modifier = Modifier
-                .background(
-                    if (sortOrder == SortOrder.OLDEST) Accent.copy(alpha = 0.12f) else Color.Transparent,
-                    CircleShape
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(onClick = onOpenSearch, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Search, contentDescription = "Search media", tint = TextPrimary)
+            }
+            IconButton(onClick = onOpenBrowseOptions, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Tune, contentDescription = "Browse options", tint = TextPrimary)
+            }
+            IconButton(onClick = onToggleSort, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Default.SwapVert,
+                    contentDescription = "Sort: ${sortOrder.label}",
+                    tint = if (sortOrder == SortOrder.OLDEST) Accent else TextPrimary
                 )
-        ) {
-            Icon(
-                imageVector = Icons.Default.SwapVert,
-                contentDescription = "Sort: ${sortOrder.label}",
-                tint = if (sortOrder == SortOrder.OLDEST) Accent else TextSecondary
-            )
-        }
-
-        Spacer(modifier = Modifier.width(2.dp))
-
-        // Local Storage Mode Toggle Button
-        IconButton(
-            onClick = onToggleLocal,
-            modifier = Modifier
-                .background(
-                    if (isLocalOnly) Color(0xFF10B981).copy(alpha = 0.15f) else Color.Transparent,
-                    CircleShape
+            }
+            IconButton(
+                onClick = onToggleLocal,
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(if (isLocalOnly) Color(0xFFD8EADF) else Color.Transparent, RoundedCornerShape(10.dp))
+            ) {
+                Icon(
+                    Icons.Default.DownloadDone,
+                    contentDescription = if (isLocalOnly) "Showing media saved to the server" else "Show media saved to the server",
+                    tint = if (isLocalOnly) Color(0xFF275A3C) else TextPrimary
                 )
-        ) {
-            Icon(
-                imageVector = if (isLocalOnly) Icons.Default.DownloadDone else Icons.Outlined.FileDownload,
-                contentDescription = if (isLocalOnly) "Showing Local Only" else "Show All Media",
-                tint = if (isLocalOnly) Color(0xFF059669) else TextSecondary
-            )
+            }
         }
+    }
+}
 
-        IconButton(onClick = onOpenSettings) {
-            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextPrimary)
+@Composable
+fun BrowseOptionsSheet(
+    selectedMediaFilter: MediaFilter,
+    availablePlatforms: List<String>,
+    selectedPlatform: String?,
+    isLocalOnly: Boolean,
+    sortOrder: SortOrder,
+    gridAspect: GridAspect,
+    onApply: (MediaFilter, String?, Boolean, SortOrder, GridAspect) -> Unit,
+    onOpenServerProfiles: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draftMediaFilter by remember(selectedMediaFilter) { mutableStateOf(selectedMediaFilter) }
+    var draftPlatform by remember(selectedPlatform) { mutableStateOf(selectedPlatform) }
+    var draftLocalOnly by remember(isLocalOnly) { mutableStateOf(isLocalOnly) }
+    var draftSortOrder by remember(sortOrder) { mutableStateOf(sortOrder) }
+    var draftGridAspect by remember(gridAspect) { mutableStateOf(gridAspect) }
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF2A201C).copy(alpha = 0.55f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(BackgroundLight, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + navigationBarPadding)
+                .clickable(enabled = false) {},
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Browse options",
+                    fontSize = 20.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close options", tint = TextPrimary)
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                MediaFilter.entries.forEach { filter ->
+                    val selected = filter == draftMediaFilter
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(if (selected) Accent else Color.Transparent)
+                            .then(
+                                if (selected) Modifier else Modifier.background(SurfaceLight)
+                            )
+                            .clickable { draftMediaFilter = filter },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            filter.label,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else TextPrimary
+                        )
+                    }
+                }
+            }
+
+            Text("Platform", fontSize = 12.sp, color = TextSecondary)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = draftPlatform == null,
+                        onClick = { draftPlatform = null },
+                        label = { Text("All") },
+                        colors = chipColors()
+                    )
+                }
+                items(availablePlatforms) { platform ->
+                    FilterChip(
+                        selected = draftPlatform.equals(platform, ignoreCase = true),
+                        onClick = { draftPlatform = platform },
+                        label = { Text(platform.uppercase()) },
+                        colors = chipColors()
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clickable { draftLocalOnly = !draftLocalOnly },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Only media saved to the server", fontSize = 13.sp, color = TextPrimary)
+                Box(
+                    modifier = Modifier
+                        .size(width = 44.dp, height = 24.dp)
+                        .background(if (draftLocalOnly) Color(0xFFD8EADF) else BorderSubtle, CircleShape)
+                        .padding(start = if (draftLocalOnly) 20.dp else 0.dp),
+                    contentAlignment = if (draftLocalOnly) Alignment.CenterEnd else Alignment.CenterStart
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(if (draftLocalOnly) Color(0xFF2F6B45) else SurfaceLight, CircleShape)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .background(SurfaceElevated)
+                    .clickable {
+                        draftSortOrder = if (draftSortOrder == SortOrder.NEWEST) SortOrder.OLDEST else SortOrder.NEWEST
+                    }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Sort", fontSize = 12.sp, color = TextSecondary)
+                Text(draftSortOrder.label, fontSize = 13.sp, color = TextPrimary)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                GridAspect.entries.forEach { aspect ->
+                    val selected = aspect == draftGridAspect
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(if (selected) Accent else SurfaceElevated)
+                            .clickable { draftGridAspect = aspect },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Grid ${aspect.label}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else TextPrimary
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = onOpenServerProfiles,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                ) {
+                    Text("Server profiles", color = Accent, fontSize = 13.sp)
+                }
+                TextButton(
+                    onClick = {
+                        onApply(draftMediaFilter, draftPlatform, draftLocalOnly, draftSortOrder, draftGridAspect)
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .background(Accent)
+                ) {
+                    Text("Apply", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }
@@ -432,19 +583,23 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 fun MediaGrid(
     items: List<ArchiveItem>,
     baseUrl: String,
+    gridAspect: GridAspect,
+    onThumbnailError: (Long) -> Unit,
     onItemClick: (Int) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        contentPadding = PaddingValues(0.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
             MediaGridThumbnail(
                 item = item,
                 baseUrl = baseUrl,
+                aspectRatio = gridAspect.ratio,
+                onThumbnailError = onThumbnailError,
                 onClick = { onItemClick(index) }
             )
         }
@@ -455,162 +610,126 @@ fun MediaGrid(
 fun MediaGridThumbnail(
     item: ArchiveItem,
     baseUrl: String,
+    aspectRatio: Float,
+    onThumbnailError: (Long) -> Unit,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageSource = item.resolveThumbnailUrl(baseUrl)
+    val imageSources = remember(item, baseUrl) { item.resolveThumbnailCandidates(baseUrl) }
+    var imageSourceIndex by remember(imageSources) { mutableStateOf(0) }
+    var thumbnailRequested by remember(item.id) { mutableStateOf(false) }
+    val imageSource = imageSources.getOrNull(imageSourceIndex).orEmpty()
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f)
+            .aspectRatio(aspectRatio)
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
-        if (imageSource.isBlank()) {
+        var imageFailed by remember(imageSources) { mutableStateOf(imageSources.isEmpty()) }
+
+        if (imageSource.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageSource)
+                    .size(360, 720)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onSuccess = { imageFailed = false },
+                onError = {
+                    if (imageSourceIndex < imageSources.lastIndex) {
+                        imageSourceIndex += 1
+                    } else {
+                        imageFailed = true
+                        if (!thumbnailRequested) {
+                            thumbnailRequested = true
+                            onThumbnailError(item.id)
+                        }
+                    }
+                }
+            )
+        } else {
+            LaunchedEffect(item.id, imageSources) {
+                if (!thumbnailRequested) {
+                    thumbnailRequested = true
+                    onThumbnailError(item.id)
+                }
+            }
+        }
+
+        if (imageFailed) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFE2E8F0)),
+                    .background(SurfaceElevated),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Icon(
                     imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.BrokenImage,
                     contentDescription = "No Media",
-                    tint = Color(0xFF94A3B8),
+                    tint = TextSecondary,
                     modifier = Modifier.size(24.dp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "NO PREVIEW",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF64748B)
-                )
             }
-        } else {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(imageSource)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(SurfaceElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = Color(0xFF60A5FA)
-                        )
-                    }
-                },
-                error = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFE2E8F0)),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.BrokenImage,
-                            contentDescription = "No Media",
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "NO PREVIEW",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                }
-            )
         }
 
-        // Top-left: Local storage status, error, or in-flight download spinner
         if (item.downloadingLocal) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(5.dp)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(16.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
-                        strokeWidth = 1.5.dp,
-                        color = Color(0xFF60A5FA)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = "SAVING",
-                        color = Color(0xFF93C5FD),
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                CircularProgressIndicator(
+                    modifier = Modifier.size(13.dp),
+                    strokeWidth = 1.5.dp,
+                    color = Accent
+                )
             }
         } else if (item.localError.isNotBlank()) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(5.dp)
-                    .background(Color(0xFFD97706).copy(alpha = 0.9f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Local Cache Error",
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = "LOCAL ERR",
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        } else if (item.hasLocalMedia) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(5.dp)
-                    .background(Color(0xFF10B981).copy(alpha = 0.85f), CircleShape)
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
                     .size(16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Downloaded locally",
-                    tint = Color.White,
-                    modifier = Modifier.size(11.dp)
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = "Save failed",
+                    tint = Color(0xFFB3263E),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        } else if (item.hasLocalMedia) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DownloadDone,
+                    contentDescription = "Saved to server",
+                    tint = Color(0xFF2F6B45),
+                    modifier = Modifier.size(15.dp)
                 )
             }
         }
 
-        // Top-right: Carousel Stack Badge (for multi-media posts)
         if (item.isCarousel) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(5.dp)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                    .align(Alignment.TopStart)
+                    .padding(7.dp)
+                    .background(Color(0xFF2A201C).copy(alpha = 0.78f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -644,7 +763,7 @@ fun MediaViewerOverlay(
     onClose: () -> Unit
 ) {
     val postPagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
-    var showControls by remember { mutableStateOf(true) }
+    var showControls by remember { mutableStateOf(false) }
     var activePlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     val currentPost = items.getOrNull(postPagerState.currentPage)
     val context = LocalContext.current
@@ -669,7 +788,7 @@ fun MediaViewerOverlay(
                 alpha = 1f - (progress * 0.5f)
                 translationY = offsetY.value
             }
-            .background(Color(0xFF0F172A))
+            .background(Color(0xFF2D2420))
             .draggable(
                 state = draggableState,
                 orientation = Orientation.Vertical,
@@ -726,55 +845,36 @@ fun MediaViewerOverlay(
                         bottom = systemBarsPadding.calculateBottomPadding()
                     )
             ) {
-                // Top Minimal Counter
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .background(Color(0xFF0F172A).copy(alpha = 0.6f))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .background(Color(0xFF2D2420).copy(alpha = 0.92f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    IconButton(onClick = onClose, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close viewer", tint = Color.White)
+                    }
                     Text(
-                        text = "Post ${postPagerState.currentPage + 1} of ${items.size}",
+                        text = "${postPagerState.currentPage + 1} of ${items.size}",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
-
                     currentPost?.let {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (it.hasLocalMedia) {
-                                Surface(
-                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(6.dp),
-                                    modifier = Modifier.padding(end = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "Stored Locally",
-                                            tint = Color(0xFF34D399),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "LOCAL",
-                                            color = Color(0xFF34D399),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                            Text(
-                                text = "${it.platform.uppercase()} #${it.id}",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 11.sp
+                        IconButton(
+                            onClick = {
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(it.displayUrl))
+                                context.startActivity(browserIntent)
+                            },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Open source",
+                                tint = Color.White
                             )
                         }
                     }
@@ -786,24 +886,21 @@ fun MediaViewerOverlay(
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
                 ) {
-                    // Video Seeker attached directly on top of metadata bar
-                    activePlayer?.let { player ->
-                        VideoSeekerBar(
-                            exoPlayer = player,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                        )
-                    }
-
-                    // Metadata & Actions Bar
                     currentPost?.let { item ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF0F172A).copy(alpha = 0.85f))
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .background(Color(0xFF201816).copy(alpha = 0.96f))
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            activePlayer?.let { player ->
+                                VideoSeekerBar(
+                                    exoPlayer = player,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -814,92 +911,60 @@ fun MediaViewerOverlay(
                                         text = item.effectiveTitle,
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp,
+                                        fontSize = 13.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (item.hasLocalMedia) {
+                                    if (item.text.isNotBlank() && item.text != item.effectiveTitle) {
                                         Text(
-                                            text = item.localUrl.ifBlank { "Stored locally (${item.totalMediaCount} files)" },
-                                            color = Color(0xFF34D399),
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
+                                            text = item.text,
+                                            color = Color(0xFFD8CEC7),
+                                            fontSize = 12.sp,
+                                            maxLines = 3,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     } else if (item.localError.isNotBlank()) {
                                         Text(
-                                            text = "Error: ${item.localError}",
-                                            color = Color(0xFFF87171),
+                                            text = "Save failed: ${item.localError}",
+                                            color = Color(0xFFFFB4AB),
                                             fontSize = 11.sp,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                    } else if (item.displayUrl.isNotBlank()) {
-                                        Text(
-                                            text = item.displayUrl,
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
                                     }
                                 }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (item.hasLocalMedia) {
-                                        IconButton(
-                                            onClick = { onDeleteLocalMedia(item.id) }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete Local Media",
-                                                tint = Color(0xFFF87171),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                    } else {
-                                        IconButton(
-                                            onClick = { onRequestLocalDownload(item.id) },
-                                            enabled = !item.downloadingLocal
-                                        ) {
-                                            if (item.downloadingLocal) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(18.dp),
-                                                    strokeWidth = 2.dp,
-                                                    color = Color.White
-                                                )
-                                            } else {
-                                                Icon(
-                                                    imageVector = Icons.Default.CloudDownload,
-                                                    contentDescription = "Save to Server Storage",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    IconButton(
-                                        onClick = {
-                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
-                                            context.startActivity(browserIntent)
-                                        }
+                                if (item.hasLocalMedia) {
+                                    Box(
+                                        modifier = Modifier.size(44.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            Icons.AutoMirrored.Filled.OpenInNew,
-                                            contentDescription = "Open Source",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(22.dp)
+                                            Icons.Default.DownloadDone,
+                                            contentDescription = "Saved to server",
+                                            tint = Color(0xFF6FAA7F),
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
-
-                                    IconButton(onClick = onClose) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "Close",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(24.dp)
-                                        )
+                                } else {
+                                    IconButton(
+                                        onClick = { onRequestLocalDownload(item.id) },
+                                        enabled = !item.downloadingLocal,
+                                        modifier = Modifier.size(44.dp)
+                                    ) {
+                                        if (item.downloadingLocal) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = TextPrimary
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudDownload,
+                                                contentDescription = "Save to server",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1116,6 +1181,7 @@ fun VideoPlayerPage(
 
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
+            setSeekParameters(SeekParameters.CLOSEST_SYNC)
             setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
             prepare()
             playWhenReady = true
@@ -1208,18 +1274,12 @@ fun VideoSeekerBar(
     }
 
     Box(modifier = modifier) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.7f),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 IconButton(
                     onClick = {
                         if (exoPlayer.isPlaying) {
@@ -1228,22 +1288,20 @@ fun VideoSeekerBar(
                             exoPlayer.play()
                         }
                     },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.width(4.dp))
 
                 Text(
                     text = formatDuration(currentPositionMs),
                     color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium
                 )
 
@@ -1258,7 +1316,11 @@ fun VideoSeekerBar(
                     onValueChangeFinished = {
                         isDraggingSlider = false
                         val targetMs = (sliderPosition * durationMs).toLong()
+                        val resumeAfterSeek = exoPlayer.playWhenReady
+                        currentPositionMs = targetMs
                         exoPlayer.seekTo(targetMs)
+                        exoPlayer.playWhenReady = resumeAfterSeek
+                        if (resumeAfterSeek) exoPlayer.play()
                     },
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
@@ -1267,16 +1329,16 @@ fun VideoSeekerBar(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .height(32.dp)
+                        .padding(horizontal = 6.dp)
                 )
 
                 Text(
                     text = formatDuration(durationMs),
                     color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium
                 )
-            }
         }
     }
 }
@@ -1286,6 +1348,184 @@ fun formatDuration(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+@Composable
+fun ServerProfilesScreen(
+    profiles: List<com.bookmedia.gallery.data.ServerProfile>,
+    activeProfile: com.bookmedia.gallery.data.ServerProfile?,
+    onSelectProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
+    onAddOrUpdateProfile: (name: String, url: String, id: String?) -> Unit,
+    onDeleteProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var isAdding by remember { mutableStateOf(false) }
+    var profileName by remember { mutableStateOf("") }
+    var profileUrl by remember { mutableStateOf("http://192.168.18.11:8080") }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = BackgroundLight) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+                    .padding(start = 12.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.height(44.dp)) {
+                        Text("Back", color = Accent, fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Server profiles",
+                        fontSize = 22.sp,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                }
+                TextButton(
+                    onClick = { isAdding = !isAdding },
+                    modifier = Modifier
+                        .height(44.dp)
+                        .background(Accent)
+                ) {
+                    Text(if (isAdding) "Cancel" else "Add", color = Color.White, fontSize = 13.sp)
+                }
+            }
+
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    Text(
+                        "Switch between local, private-network, or public Archie hosts.",
+                        fontSize = 14.sp,
+                        color = TextSecondary
+                    )
+                }
+
+                items(profiles, key = { it.id }) { profile ->
+                    val isActive = profile.id == activeProfile?.id
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectProfile(profile) },
+                        color = if (isActive) SurfaceElevated else BackgroundLight,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isActive) Accent else BorderSubtle
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(profile.name, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                    Text(
+                                        if (isActive) "Active" else "Use profile",
+                                        fontSize = 12.sp,
+                                        color = if (isActive) Color(0xFF2F6B45) else Accent
+                                    )
+                                }
+                                Text(
+                                    profile.url,
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (profiles.size > 1 && !isActive) {
+                                IconButton(onClick = { onDeleteProfile(profile) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete ${profile.name}", tint = TextSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isAdding) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceElevated)
+                                .padding(horizontal = 16.dp, vertical = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "New profile",
+                                fontSize = 18.sp,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            OutlinedTextField(
+                                value = profileName,
+                                onValueChange = { profileName = it },
+                                label = { Text("Profile name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedBorderColor = BorderSubtle,
+                                    unfocusedBorderColor = BorderSubtle
+                                )
+                            )
+                            OutlinedTextField(
+                                value = profileUrl,
+                                onValueChange = { profileUrl = it },
+                                label = { Text("Server URL") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedBorderColor = BorderSubtle,
+                                    unfocusedBorderColor = BorderSubtle
+                                )
+                            )
+                            TextButton(
+                                onClick = {
+                                    if (profileUrl.isNotBlank()) {
+                                        onAddOrUpdateProfile(profileName, profileUrl, null)
+                                        profileName = ""
+                                        isAdding = false
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .background(Accent)
+                            ) {
+                                Text("Save profile", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

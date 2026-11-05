@@ -82,33 +82,56 @@ data class ArchiveItem(
     val displayUrl: String
         get() = canonicalUrl.ifBlank { submittedUrl }
 
-    fun resolveThumbnailUrl(baseUrl: String): String {
-        val raw = when {
-            validLocalFiles.any { it.type == "photo" } -> {
-                validLocalFiles.first { it.type == "photo" }.url
+    fun resolveThumbnailCandidates(baseUrl: String): List<String> {
+        val candidates = buildList {
+            val localPhotos = validLocalFiles.filter {
+                it.type.equals("photo", ignoreCase = true) || isImageUrl(it.url) || isImageUrl(it.filename)
             }
-            hasLocalMedia -> {
-                "/media/$id/thumb.jpg"
+
+            if (isVideo) {
+                localPhotos.forEach { add(it.url) }
+                add(thumbnailUrl)
+                add("/media/$id/thumb.jpg")
+                if (hasLocalMedia) add(localUrl)
+                add(submittedUrl)
+                add(canonicalUrl)
+            } else {
+                localPhotos.forEach { add(it.url) }
+                add(localUrl)
+                add(thumbnailUrl)
+                mediaItems
+                    .filter { it.type.equals("photo", ignoreCase = true) || isImageUrl(it.filename) }
+                    .forEach { add("/media/$id/${it.filename}") }
+                add(submittedUrl)
+                add(canonicalUrl)
+                add("/media/$id/thumb.jpg")
             }
-            thumbnailUrl.startsWith("/media/") -> {
-                thumbnailUrl
-            }
-            mediaItems.isNotEmpty() -> {
-                "/media/$id/thumb.jpg"
-            }
-            thumbnailUrl.isNotBlank() -> {
-                thumbnailUrl
-            }
-            !isVideo && submittedUrl.isNotBlank() && !submittedUrl.startsWith("file://") -> {
-                submittedUrl
-            }
-            else -> ""
         }
-        if (raw.isBlank()) return ""
-        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+
+        return candidates
+            .asSequence()
+            .filter { it.isNotBlank() && !it.startsWith("file://", ignoreCase = true) }
+            .map { resolveUrl(baseUrl, it) }
+            .distinct()
+            .toList()
+    }
+
+    fun resolveThumbnailUrl(baseUrl: String): String {
+        return resolveThumbnailCandidates(baseUrl).firstOrNull().orEmpty()
+    }
+
+    private fun resolveUrl(baseUrl: String, raw: String): String {
+        if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) return raw
         val trimmedBase = baseUrl.trimEnd('/')
         val trimmedPath = raw.trimStart('/')
         return "$trimmedBase/$trimmedPath"
+    }
+
+    private fun isImageUrl(value: String): Boolean {
+        return value.substringBefore('?').substringBefore('#').lowercase().let { path ->
+            listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif")
+                .any(path::endsWith)
+        }
     }
 
     fun resolvePlayableMediaUrl(baseUrl: String): String {
@@ -145,7 +168,7 @@ data class ArchiveItem(
             }
         }
 
-        if (mediaItems.isNotEmpty()) {
+        if (mediaItems.isNotEmpty() && hasLocalMedia) {
             return mediaItems.map { mi ->
                 val isVid = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true)
                 val fullUrl = "$trimmedBase/media/$id/${mi.filename}"
@@ -156,6 +179,18 @@ data class ArchiveItem(
                     filename = mi.filename
                 )
             }
+        }
+
+        if (mediaItems.isNotEmpty()) {
+            val previewUrl = resolveThumbnailUrl(baseUrl)
+            return listOf(
+                CarouselMediaEntry(
+                    index = 1,
+                    url = previewUrl,
+                    isVideo = false,
+                    filename = mediaItems.firstOrNull()?.filename.orEmpty()
+                )
+            )
         }
 
         // Single fallback item

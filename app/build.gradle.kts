@@ -13,8 +13,8 @@ android {
         applicationId = "com.bookmedia.gallery"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.3.6"
+        versionCode = 19
+        versionName = "0.3.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -22,6 +22,7 @@ class ProfilePreferences(context: Context) {
     companion object {
         private const val KEY_PROFILES = "saved_server_profiles"
         private const val KEY_ACTIVE_ID = "active_profile_id"
+        private const val KEY_GRID_ASPECT = "grid_aspect"
         private const val DEFAULT_URL = "http://192.168.18.11:8080"
     }
 
@@ -52,6 +53,14 @@ class ProfilePreferences(context: Context) {
 
     fun setActiveProfileId(id: String) {
         prefs.edit().putString(KEY_ACTIVE_ID, id).apply()
+    }
+
+    fun getGridAspect(): String {
+        return prefs.getString(KEY_GRID_ASPECT, "square") ?: "square"
+    }
+
+    fun setGridAspect(value: String) {
+        prefs.edit().putString(KEY_GRID_ASPECT, value).apply()
     }
 
     fun getActiveProfile(): ServerProfile {
