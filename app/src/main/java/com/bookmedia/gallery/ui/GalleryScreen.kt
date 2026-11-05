@@ -637,7 +637,7 @@ fun MediaGridThumbnail(
                     .crossfade(false)
                     .build(),
                 contentDescription = null,
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { imageFailed = false },
                 onError = {
