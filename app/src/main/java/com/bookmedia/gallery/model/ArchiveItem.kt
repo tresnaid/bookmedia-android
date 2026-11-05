@@ -87,11 +87,17 @@ data class ArchiveItem(
             validLocalFiles.any { it.type == "photo" } -> {
                 validLocalFiles.first { it.type == "photo" }.url
             }
-            thumbnailUrl.isNotBlank() -> {
-                thumbnailUrl
-            }
             hasLocalMedia -> {
                 "/media/$id/thumb.jpg"
+            }
+            thumbnailUrl.startsWith("/media/") -> {
+                thumbnailUrl
+            }
+            mediaItems.isNotEmpty() -> {
+                "/media/$id/thumb.jpg"
+            }
+            thumbnailUrl.isNotBlank() -> {
+                thumbnailUrl
             }
             !isVideo && submittedUrl.isNotBlank() && !submittedUrl.startsWith("file://") -> {
                 submittedUrl
