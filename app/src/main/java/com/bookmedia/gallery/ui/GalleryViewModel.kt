@@ -41,6 +41,7 @@ data class GalleryUiState(
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
+    private val thumbnailRequests = mutableSetOf<Long>()
 
     private val profilePrefs = ProfilePreferences(application)
     private val repository = BookmediaRepository(profilePrefs.getActiveProfile().url)
@@ -278,11 +279,32 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _isLocalOnly.value = !_isLocalOnly.value
     }
 
-    fun setPlatform(platform: String?) {
-        val newPlatform = if (_selectedPlatform.value == platform) null else platform
-        if (_selectedPlatform.value != newPlatform) {
+    fun setLocalOnly(enabled: Boolean) {
+        if (_isLocalOnly.value != enabled) {
             triggerFilterLoading()
-            _selectedPlatform.value = newPlatform
+            _isLocalOnly.value = enabled
+        }
+    }
+
+    fun setPlatform(platform: String?) {
+        if (_selectedPlatform.value != platform) {
+            triggerFilterLoading()
+            _selectedPlatform.value = platform
+        }
+    }
+
+    fun ensureThumbnail(rowId: Long) {
+        if (!thumbnailRequests.add(rowId)) return
+        viewModelScope.launch {
+            repository.fetchThumbnail(rowId)
+                .onSuccess { thumbnailUrl ->
+                    if (thumbnailUrl.isNotBlank()) {
+                        _rawItems.value = _rawItems.value.map { item ->
+                            if (item.id == rowId) item.copy(thumbnailUrl = thumbnailUrl) else item
+                        }
+                    }
+                }
+            thumbnailRequests.remove(rowId)
         }
     }
 

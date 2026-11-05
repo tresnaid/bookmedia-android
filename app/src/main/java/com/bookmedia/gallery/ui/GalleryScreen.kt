@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -47,7 +48,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Collections
@@ -239,6 +239,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                             MediaGrid(
                                 items = state.filteredItems,
                                 baseUrl = state.serverUrl,
+                                onThumbnailError = viewModel::ensureThumbnail,
                                 onItemClick = { index -> viewModel.openViewer(index) }
                             )
                         }
@@ -301,10 +302,12 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 selectedPlatform = state.selectedPlatform,
                 isLocalOnly = state.isLocalOnly,
                 sortOrder = state.sortOrder,
-                onSelectMediaFilter = viewModel::setMediaFilter,
-                onSelectPlatform = viewModel::setPlatform,
-                onToggleLocal = viewModel::toggleLocalOnly,
-                onToggleSort = viewModel::toggleSortOrder,
+                onApply = { filter, platform, localOnly, order ->
+                    viewModel.setMediaFilter(filter)
+                    viewModel.setPlatform(platform)
+                    viewModel.setLocalOnly(localOnly)
+                    viewModel.setSortOrder(order)
+                },
                 onOpenServerProfiles = {
                     showBrowseOptions = false
                     showSettingsDialog = true
@@ -362,7 +365,7 @@ fun GalleryTopBar(
                     .background(if (isLocalOnly) Color(0xFFD8EADF) else Color.Transparent, RoundedCornerShape(10.dp))
             ) {
                 Icon(
-                    Icons.Default.CheckCircle,
+                    Icons.Default.DownloadDone,
                     contentDescription = if (isLocalOnly) "Showing media saved to the server" else "Show media saved to the server",
                     tint = if (isLocalOnly) Color(0xFF275A3C) else TextPrimary
                 )
@@ -378,13 +381,16 @@ fun BrowseOptionsSheet(
     selectedPlatform: String?,
     isLocalOnly: Boolean,
     sortOrder: SortOrder,
-    onSelectMediaFilter: (MediaFilter) -> Unit,
-    onSelectPlatform: (String?) -> Unit,
-    onToggleLocal: () -> Unit,
-    onToggleSort: () -> Unit,
+    onApply: (MediaFilter, String?, Boolean, SortOrder) -> Unit,
     onOpenServerProfiles: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var draftMediaFilter by remember(selectedMediaFilter) { mutableStateOf(selectedMediaFilter) }
+    var draftPlatform by remember(selectedPlatform) { mutableStateOf(selectedPlatform) }
+    var draftLocalOnly by remember(isLocalOnly) { mutableStateOf(isLocalOnly) }
+    var draftSortOrder by remember(sortOrder) { mutableStateOf(sortOrder) }
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -396,7 +402,7 @@ fun BrowseOptionsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(BackgroundLight, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                .padding(16.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + navigationBarPadding)
                 .clickable(enabled = false) {},
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -421,7 +427,7 @@ fun BrowseOptionsSheet(
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 MediaFilter.entries.forEach { filter ->
-                    val selected = filter == selectedMediaFilter
+                    val selected = filter == draftMediaFilter
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -430,7 +436,7 @@ fun BrowseOptionsSheet(
                             .then(
                                 if (selected) Modifier else Modifier.background(SurfaceLight)
                             )
-                            .clickable { onSelectMediaFilter(filter) },
+                            .clickable { draftMediaFilter = filter },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -443,34 +449,34 @@ fun BrowseOptionsSheet(
                 }
             }
 
-            val platformLabel = selectedPlatform?.uppercase() ?: "All platforms"
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .background(SurfaceElevated)
-                    .clickable {
-                        val currentIndex = availablePlatforms.indexOfFirst { it.equals(selectedPlatform, ignoreCase = true) }
-                        val next = if (availablePlatforms.isEmpty() || currentIndex == availablePlatforms.lastIndex) {
-                            null
-                        } else {
-                            availablePlatforms[currentIndex + 1]
-                        }
-                        onSelectPlatform(next)
-                    }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Text("Platform", fontSize = 12.sp, color = TextSecondary)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Platform", fontSize = 12.sp, color = TextSecondary)
-                Text(platformLabel, fontSize = 13.sp, color = TextPrimary)
+                item {
+                    FilterChip(
+                        selected = draftPlatform == null,
+                        onClick = { draftPlatform = null },
+                        label = { Text("All") },
+                        colors = chipColors()
+                    )
+                }
+                items(availablePlatforms) { platform ->
+                    FilterChip(
+                        selected = draftPlatform.equals(platform, ignoreCase = true),
+                        onClick = { draftPlatform = platform },
+                        label = { Text(platform.uppercase()) },
+                        colors = chipColors()
+                    )
+                }
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .clickable(onClick = onToggleLocal),
+                    .clickable { draftLocalOnly = !draftLocalOnly },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -478,14 +484,14 @@ fun BrowseOptionsSheet(
                 Box(
                     modifier = Modifier
                         .size(width = 44.dp, height = 24.dp)
-                        .background(if (isLocalOnly) Color(0xFFD8EADF) else BorderSubtle, CircleShape)
-                        .padding(start = if (isLocalOnly) 20.dp else 0.dp),
-                    contentAlignment = if (isLocalOnly) Alignment.CenterEnd else Alignment.CenterStart
+                        .background(if (draftLocalOnly) Color(0xFFD8EADF) else BorderSubtle, CircleShape)
+                        .padding(start = if (draftLocalOnly) 20.dp else 0.dp),
+                    contentAlignment = if (draftLocalOnly) Alignment.CenterEnd else Alignment.CenterStart
                 ) {
                     Box(
                         modifier = Modifier
                             .size(24.dp)
-                            .background(if (isLocalOnly) Color(0xFF2F6B45) else SurfaceLight, CircleShape)
+                            .background(if (draftLocalOnly) Color(0xFF2F6B45) else SurfaceLight, CircleShape)
                     )
                 }
             }
@@ -495,13 +501,15 @@ fun BrowseOptionsSheet(
                     .fillMaxWidth()
                     .height(44.dp)
                     .background(SurfaceElevated)
-                    .clickable(onClick = onToggleSort)
+                    .clickable {
+                        draftSortOrder = if (draftSortOrder == SortOrder.NEWEST) SortOrder.OLDEST else SortOrder.NEWEST
+                    }
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("Sort", fontSize = 12.sp, color = TextSecondary)
-                Text(sortOrder.label, fontSize = 13.sp, color = TextPrimary)
+                Text(draftSortOrder.label, fontSize = 13.sp, color = TextPrimary)
             }
 
             Row(
@@ -517,7 +525,10 @@ fun BrowseOptionsSheet(
                     Text("Server profiles", color = Accent, fontSize = 13.sp)
                 }
                 TextButton(
-                    onClick = onDismiss,
+                    onClick = {
+                        onApply(draftMediaFilter, draftPlatform, draftLocalOnly, draftSortOrder)
+                        onDismiss()
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .height(44.dp)
@@ -542,6 +553,7 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 fun MediaGrid(
     items: List<ArchiveItem>,
     baseUrl: String,
+    onThumbnailError: (Long) -> Unit,
     onItemClick: (Int) -> Unit
 ) {
     LazyVerticalGrid(
@@ -555,6 +567,7 @@ fun MediaGrid(
             MediaGridThumbnail(
                 item = item,
                 baseUrl = baseUrl,
+                onThumbnailError = onThumbnailError,
                 onClick = { onItemClick(index) }
             )
         }
@@ -565,6 +578,7 @@ fun MediaGrid(
 fun MediaGridThumbnail(
     item: ArchiveItem,
     baseUrl: String,
+    onThumbnailError: (Long) -> Unit,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -577,75 +591,43 @@ fun MediaGridThumbnail(
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
-        if (imageSource.isBlank()) {
+        var imageFailed by remember(imageSource) { mutableStateOf(imageSource.isBlank()) }
+
+        if (imageSource.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageSource)
+                    .size(360, 720)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onSuccess = { imageFailed = false },
+                onError = {
+                    imageFailed = true
+                    onThumbnailError(item.id)
+                }
+            )
+        } else {
+            LaunchedEffect(item.id) { onThumbnailError(item.id) }
+        }
+
+        if (imageFailed) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFE2E8F0)),
+                    .background(SurfaceElevated),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Icon(
                     imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.BrokenImage,
                     contentDescription = "No Media",
-                    tint = Color(0xFF94A3B8),
+                    tint = TextSecondary,
                     modifier = Modifier.size(24.dp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "NO PREVIEW",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF64748B)
-                )
             }
-        } else {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(imageSource)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(SurfaceElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = Accent
-                        )
-                    }
-                },
-                error = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFE2E8F0)),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (item.isVideo) Icons.Default.Videocam else Icons.Default.BrokenImage,
-                            contentDescription = "No Media",
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "NO PREVIEW",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                }
-            )
         }
 
         if (item.isVideo) {
@@ -706,7 +688,7 @@ fun MediaGridThumbnail(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
+                    imageVector = Icons.Default.DownloadDone,
                     contentDescription = "Saved to server",
                     tint = Color(0xFF2F6B45),
                     modifier = Modifier.size(20.dp)
@@ -925,7 +907,7 @@ fun MediaViewerOverlay(
                                 }
                                 if (item.hasLocalMedia) {
                                     Icon(
-                                        Icons.Default.CheckCircle,
+                                        Icons.Default.DownloadDone,
                                         contentDescription = "Saved to server",
                                         tint = Color(0xFF6FAA7F),
                                         modifier = Modifier.size(24.dp)
@@ -953,7 +935,7 @@ fun MediaViewerOverlay(
                                         )
                                     } else {
                                         Icon(
-                                            imageVector = if (item.hasLocalMedia) Icons.Default.CheckCircle else Icons.Default.CloudDownload,
+                                            imageVector = if (item.hasLocalMedia) Icons.Default.DownloadDone else Icons.Default.CloudDownload,
                                             contentDescription = if (item.hasLocalMedia) "Saved to server" else "Save to server",
                                             tint = if (item.hasLocalMedia) Color(0xFF2F6B45) else TextPrimary,
                                             modifier = Modifier.size(22.dp)

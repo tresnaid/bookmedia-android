@@ -11,11 +11,18 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
 class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:8080") {
+
+    @Serializable
+    private data class ThumbnailResponse(
+        @SerialName("thumbnail_url") val thumbnailUrl: String = ""
+    )
 
     private val client = HttpClient(OkHttp) {
         engine {
@@ -75,6 +82,13 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
         runCatching {
             client.post("$baseUrl/api/archives/$rowId/delete-local")
             Unit
+        }
+    }
+
+    suspend fun fetchThumbnail(rowId: Long): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response: ThumbnailResponse = client.post("$baseUrl/api/archives/$rowId/fetch-thumbnail").body()
+            response.thumbnailUrl
         }
     }
 }
