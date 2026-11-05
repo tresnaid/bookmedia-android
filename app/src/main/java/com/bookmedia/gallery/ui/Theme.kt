@@ -8,14 +8,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Clean, elegant modern light theme (Google Photos / Apple Photos gallery style)
-val BackgroundLight = Color(0xFFF9FAFB)
-val SurfaceLight = Color(0xFFFFFFFF)
-val SurfaceElevated = Color(0xFFF3F4F6)
-val BorderSubtle = Color(0xFFE5E7EB)
-val TextPrimary = Color(0xFF111827)
-val TextSecondary = Color(0xFF6B7280)
-val Accent = Color(0xFF1F2937)
+val BackgroundLight = Color(0xFFFBF8F2)
+val SurfaceLight = Color(0xFFFFFDF9)
+val SurfaceElevated = Color(0xFFF2E9DA)
+val BorderSubtle = Color(0xFFC9BBAA)
+val TextPrimary = Color(0xFF2A201C)
+val TextSecondary = Color(0xFF6E6057)
+val Accent = Color(0xFF7A1F2B)
 
 val GalleryColorScheme = lightColorScheme(
     primary = Accent,
