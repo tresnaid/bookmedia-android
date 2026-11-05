@@ -912,53 +912,29 @@ fun MediaViewerOverlay(
                                         tint = Color(0xFF6FAA7F),
                                         modifier = Modifier.size(24.dp)
                                     )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { if (!item.hasLocalMedia) onRequestLocalDownload(item.id) },
-                                    enabled = !item.downloadingLocal,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(46.dp)
-                                        .background(Color(0xFFF4EFE6))
-                                ) {
-                                    if (item.downloadingLocal) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = TextPrimary
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = if (item.hasLocalMedia) Icons.Default.DownloadDone else Icons.Default.CloudDownload,
-                                            contentDescription = if (item.hasLocalMedia) "Saved to server" else "Save to server",
-                                            tint = if (item.hasLocalMedia) Color(0xFF2F6B45) else TextPrimary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
+                                } else {
+                                    IconButton(
+                                        onClick = { onRequestLocalDownload(item.id) },
+                                        enabled = !item.downloadingLocal,
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .background(Color(0xFFF4EFE6))
+                                    ) {
+                                        if (item.downloadingLocal) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = TextPrimary
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudDownload,
+                                                contentDescription = "Save to server",
+                                                tint = TextPrimary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
                                     }
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.displayUrl))
-                                        context.startActivity(browserIntent)
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(46.dp)
-                                        .background(Color.Transparent)
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.OpenInNew,
-                                        contentDescription = "Open source",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
-                                    )
                                 }
                             }
                         }
