@@ -582,7 +582,10 @@ fun MediaGridThumbnail(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageSource = item.resolveThumbnailUrl(baseUrl)
+    val imageSources = remember(item, baseUrl) { item.resolveThumbnailCandidates(baseUrl) }
+    var imageSourceIndex by remember(imageSources) { mutableStateOf(0) }
+    var thumbnailRequested by remember(item.id) { mutableStateOf(false) }
+    val imageSource = imageSources.getOrNull(imageSourceIndex).orEmpty()
 
     Box(
         modifier = Modifier
@@ -591,7 +594,7 @@ fun MediaGridThumbnail(
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
-        var imageFailed by remember(imageSource) { mutableStateOf(imageSource.isBlank()) }
+        var imageFailed by remember(imageSources) { mutableStateOf(imageSources.isEmpty()) }
 
         if (imageSource.isNotBlank()) {
             AsyncImage(
@@ -605,12 +608,24 @@ fun MediaGridThumbnail(
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { imageFailed = false },
                 onError = {
-                    imageFailed = true
-                    onThumbnailError(item.id)
+                    if (imageSourceIndex < imageSources.lastIndex) {
+                        imageSourceIndex += 1
+                    } else {
+                        imageFailed = true
+                        if (!thumbnailRequested) {
+                            thumbnailRequested = true
+                            onThumbnailError(item.id)
+                        }
+                    }
                 }
             )
         } else {
-            LaunchedEffect(item.id) { onThumbnailError(item.id) }
+            LaunchedEffect(item.id, imageSources) {
+                if (!thumbnailRequested) {
+                    thumbnailRequested = true
+                    onThumbnailError(item.id)
+                }
+            }
         }
 
         if (imageFailed) {
