@@ -107,6 +107,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
@@ -239,6 +240,7 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                             MediaGrid(
                                 items = state.filteredItems,
                                 baseUrl = state.serverUrl,
+                                gridAspect = state.gridAspect,
                                 onThumbnailError = viewModel::ensureThumbnail,
                                 onItemClick = { index -> viewModel.openViewer(index) }
                             )
@@ -302,11 +304,13 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 selectedPlatform = state.selectedPlatform,
                 isLocalOnly = state.isLocalOnly,
                 sortOrder = state.sortOrder,
-                onApply = { filter, platform, localOnly, order ->
+                gridAspect = state.gridAspect,
+                onApply = { filter, platform, localOnly, order, aspect ->
                     viewModel.setMediaFilter(filter)
                     viewModel.setPlatform(platform)
                     viewModel.setLocalOnly(localOnly)
                     viewModel.setSortOrder(order)
+                    viewModel.setGridAspect(aspect)
                 },
                 onOpenServerProfiles = {
                     showBrowseOptions = false
@@ -381,7 +385,8 @@ fun BrowseOptionsSheet(
     selectedPlatform: String?,
     isLocalOnly: Boolean,
     sortOrder: SortOrder,
-    onApply: (MediaFilter, String?, Boolean, SortOrder) -> Unit,
+    gridAspect: GridAspect,
+    onApply: (MediaFilter, String?, Boolean, SortOrder, GridAspect) -> Unit,
     onOpenServerProfiles: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -389,6 +394,7 @@ fun BrowseOptionsSheet(
     var draftPlatform by remember(selectedPlatform) { mutableStateOf(selectedPlatform) }
     var draftLocalOnly by remember(isLocalOnly) { mutableStateOf(isLocalOnly) }
     var draftSortOrder by remember(sortOrder) { mutableStateOf(sortOrder) }
+    var draftGridAspect by remember(gridAspect) { mutableStateOf(gridAspect) }
     val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Box(
@@ -514,6 +520,30 @@ fun BrowseOptionsSheet(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                GridAspect.entries.forEach { aspect ->
+                    val selected = aspect == draftGridAspect
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(if (selected) Accent else SurfaceElevated)
+                            .clickable { draftGridAspect = aspect },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Grid ${aspect.label}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else TextPrimary
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextButton(
@@ -526,7 +556,7 @@ fun BrowseOptionsSheet(
                 }
                 TextButton(
                     onClick = {
-                        onApply(draftMediaFilter, draftPlatform, draftLocalOnly, draftSortOrder)
+                        onApply(draftMediaFilter, draftPlatform, draftLocalOnly, draftSortOrder, draftGridAspect)
                         onDismiss()
                     },
                     modifier = Modifier
@@ -553,20 +583,22 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 fun MediaGrid(
     items: List<ArchiveItem>,
     baseUrl: String,
+    gridAspect: GridAspect,
     onThumbnailError: (Long) -> Unit,
     onItemClick: (Int) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        contentPadding = PaddingValues(0.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
             MediaGridThumbnail(
                 item = item,
                 baseUrl = baseUrl,
+                aspectRatio = gridAspect.ratio,
                 onThumbnailError = onThumbnailError,
                 onClick = { onItemClick(index) }
             )
@@ -578,6 +610,7 @@ fun MediaGrid(
 fun MediaGridThumbnail(
     item: ArchiveItem,
     baseUrl: String,
+    aspectRatio: Float,
     onThumbnailError: (Long) -> Unit,
     onClick: () -> Unit
 ) {
@@ -590,7 +623,7 @@ fun MediaGridThumbnail(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.51f)
+            .aspectRatio(aspectRatio)
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
@@ -604,7 +637,7 @@ fun MediaGridThumbnail(
                     .crossfade(false)
                     .build(),
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { imageFailed = false },
                 onError = {
@@ -645,35 +678,17 @@ fun MediaGridThumbnail(
             }
         }
 
-        if (item.isVideo) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(40.dp)
-                    .background(Color(0xFFF4EFE6).copy(alpha = 0.92f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Video",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-
         if (item.downloadingLocal) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(7.dp)
-                    .size(24.dp)
-                    .background(SurfaceLight.copy(alpha = 0.92f), CircleShape),
+                    .padding(4.dp)
+                    .size(16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(15.dp),
-                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(13.dp),
+                    strokeWidth = 1.5.dp,
                     color = Accent
                 )
             }
@@ -681,32 +696,30 @@ fun MediaGridThumbnail(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(7.dp)
-                    .size(24.dp)
-                    .background(SurfaceLight.copy(alpha = 0.92f), CircleShape),
+                    .padding(4.dp)
+                    .size(16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.ErrorOutline,
                     contentDescription = "Save failed",
                     tint = Color(0xFFB3263E),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
         } else if (item.hasLocalMedia) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(7.dp)
-                    .size(24.dp)
-                    .background(SurfaceLight.copy(alpha = 0.92f), CircleShape),
+                    .padding(4.dp)
+                    .size(16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.DownloadDone,
                     contentDescription = "Saved to server",
                     tint = Color(0xFF2F6B45),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
         }
@@ -890,7 +903,7 @@ fun MediaViewerOverlay(
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.Top,
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
@@ -921,19 +934,22 @@ fun MediaViewerOverlay(
                                     }
                                 }
                                 if (item.hasLocalMedia) {
-                                    Icon(
-                                        Icons.Default.DownloadDone,
-                                        contentDescription = "Saved to server",
-                                        tint = Color(0xFF6FAA7F),
-                                        modifier = Modifier.size(24.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier.size(44.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DownloadDone,
+                                            contentDescription = "Saved to server",
+                                            tint = Color(0xFF6FAA7F),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 } else {
                                     IconButton(
                                         onClick = { onRequestLocalDownload(item.id) },
                                         enabled = !item.downloadingLocal,
-                                        modifier = Modifier
-                                            .size(46.dp)
-                                            .background(Color(0xFFF4EFE6))
+                                        modifier = Modifier.size(44.dp)
                                     ) {
                                         if (item.downloadingLocal) {
                                             CircularProgressIndicator(
@@ -945,8 +961,8 @@ fun MediaViewerOverlay(
                                             Icon(
                                                 imageVector = Icons.Default.CloudDownload,
                                                 contentDescription = "Save to server",
-                                                tint = TextPrimary,
-                                                modifier = Modifier.size(22.dp)
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
@@ -1165,6 +1181,7 @@ fun VideoPlayerPage(
 
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
+            setSeekParameters(SeekParameters.CLOSEST_SYNC)
             setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
             prepare()
             playWhenReady = true
@@ -1257,18 +1274,12 @@ fun VideoSeekerBar(
     }
 
     Box(modifier = modifier) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.7f),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 IconButton(
                     onClick = {
                         if (exoPlayer.isPlaying) {
@@ -1277,22 +1288,20 @@ fun VideoSeekerBar(
                             exoPlayer.play()
                         }
                     },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.width(4.dp))
 
                 Text(
                     text = formatDuration(currentPositionMs),
                     color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium
                 )
 
@@ -1307,7 +1316,11 @@ fun VideoSeekerBar(
                     onValueChangeFinished = {
                         isDraggingSlider = false
                         val targetMs = (sliderPosition * durationMs).toLong()
+                        val resumeAfterSeek = exoPlayer.playWhenReady
+                        currentPositionMs = targetMs
                         exoPlayer.seekTo(targetMs)
+                        exoPlayer.playWhenReady = resumeAfterSeek
+                        if (resumeAfterSeek) exoPlayer.play()
                     },
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
@@ -1316,16 +1329,16 @@ fun VideoSeekerBar(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .height(32.dp)
+                        .padding(horizontal = 6.dp)
                 )
 
                 Text(
                     text = formatDuration(durationMs),
                     color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Medium
                 )
-            }
         }
     }
 }

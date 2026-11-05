@@ -23,12 +23,18 @@ enum class SortOrder(val label: String) {
     OLDEST("Oldest")
 }
 
+enum class GridAspect(val storageValue: String, val label: String, val ratio: Float) {
+    SQUARE("square", "Square", 1f),
+    PORTRAIT("portrait", "4:5", 0.8f)
+}
+
 data class GalleryUiState(
     val items: List<ArchiveItem> = emptyList(),
     val filteredItems: List<ArchiveItem> = emptyList(),
     val availablePlatforms: List<String> = emptyList(),
     val selectedMediaFilter: MediaFilter = MediaFilter.ALL,
     val sortOrder: SortOrder = SortOrder.NEWEST,
+    val gridAspect: GridAspect = GridAspect.SQUARE,
     val isLocalOnly: Boolean = false,
     val selectedPlatform: String? = null,
     val searchQuery: String = "",
@@ -49,6 +55,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _rawItems = MutableStateFlow<List<ArchiveItem>>(emptyList())
     private val _selectedMediaFilter = MutableStateFlow(MediaFilter.ALL)
     private val _sortOrder = MutableStateFlow(SortOrder.NEWEST)
+    private val _gridAspect = MutableStateFlow(
+        GridAspect.entries.firstOrNull { it.storageValue == profilePrefs.getGridAspect() } ?: GridAspect.SQUARE
+    )
     private val _isLocalOnly = MutableStateFlow(false)
     private val _selectedPlatform = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
@@ -73,9 +82,10 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private val queryAndBundleFlow = combine(
         filterBundleFlow,
-        _searchQuery
-    ) { bundle, query ->
-        QueryBundle(bundle, query)
+        _searchQuery,
+        _gridAspect
+    ) { bundle, query, gridAspect ->
+        QueryBundle(bundle, query, gridAspect)
     }
 
     private val loadingFlow = combine(
@@ -146,6 +156,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             availablePlatforms = platforms,
             selectedMediaFilter = mediaFilter,
             sortOrder = sortOrder,
+            gridAspect = queryBundle.gridAspect,
             isLocalOnly = localOnly,
             selectedPlatform = platform,
             searchQuery = queryBundle.query,
@@ -274,6 +285,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setGridAspect(aspect: GridAspect) {
+        if (_gridAspect.value != aspect) {
+            _gridAspect.value = aspect
+            profilePrefs.setGridAspect(aspect.storageValue)
+        }
+    }
+
     fun toggleLocalOnly() {
         triggerFilterLoading()
         _isLocalOnly.value = !_isLocalOnly.value
@@ -363,7 +381,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private data class QueryBundle(
         val bundle: FilterBundle,
-        val query: String
+        val query: String,
+        val gridAspect: GridAspect
     )
 
     private data class FilterBundle(
