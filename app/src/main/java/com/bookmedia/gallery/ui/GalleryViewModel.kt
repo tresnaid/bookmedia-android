@@ -1,11 +1,16 @@
 package com.bookmedia.gallery.ui
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.bookmedia.gallery.BuildConfig
 import com.bookmedia.gallery.data.BookmediaRepository
+import com.bookmedia.gallery.data.MediaCacheManager
 import com.bookmedia.gallery.data.ProfilePreferences
 import com.bookmedia.gallery.data.ServerProfile
+import com.bookmedia.gallery.model.AppVersionInfo
 import com.bookmedia.gallery.model.ArchiveItem
 import com.bookmedia.gallery.model.MediaFilter
 import kotlinx.coroutines.Job
@@ -16,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 
 enum class SortOrder(val label: String) {
@@ -26,6 +32,16 @@ enum class SortOrder(val label: String) {
 enum class GridAspect(val storageValue: String, val label: String, val ratio: Float) {
     SQUARE("square", "Square", 1f),
     PORTRAIT("portrait", "4:5", 0.8f)
+}
+
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data object UpToDate : UpdateState
+    data class Available(val version: AppVersionInfo) : UpdateState
+    data class Downloading(val progress: Float) : UpdateState
+    data class ReadyToInstall(val apkFile: File) : UpdateState
+    data class Error(val message: String) : UpdateState
 }
 
 data class GalleryUiState(
@@ -43,13 +59,18 @@ data class GalleryUiState(
     val activeViewerIndex: Int? = null,
     val serverUrl: String = "http://192.168.18.11:8080",
     val profiles: List<ServerProfile> = emptyList(),
-    val activeProfile: ServerProfile? = null
+    val activeProfile: ServerProfile? = null,
+    val favoriteIds: Set<Long> = emptySet(),
+    val autoCacheFavorites: Boolean = true,
+    val cacheSizeMb: Float = 0f,
+    val updateState: UpdateState = UpdateState.Idle
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val thumbnailRequests = mutableSetOf<Long>()
 
-    private val profilePrefs = ProfilePreferences(application)
+    val profilePrefs = ProfilePreferences(application)
+    val mediaCacheManager = MediaCacheManager(application)
     private val repository = BookmediaRepository(profilePrefs.getActiveProfile().url)
 
     private val _rawItems = MutableStateFlow<List<ArchiveItem>>(emptyList())
@@ -69,6 +90,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _activeProfile = MutableStateFlow(profilePrefs.getActiveProfile())
     private val _isFilterTransitioning = MutableStateFlow(false)
     private var pollJob: Job? = null
+
+    private val _favoriteIds = MutableStateFlow(profilePrefs.getFavoriteIds())
+    private val _autoCacheFavorites = MutableStateFlow(profilePrefs.getAutoCacheFavorites())
+    private val _cacheSizeMb = MutableStateFlow(mediaCacheManager.getCacheSizeBytes() / (1024f * 1024f))
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
 
     private val filterBundleFlow = combine(
         _rawItems,
@@ -105,14 +131,24 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         StateBundle(loading, error, viewerIdx, activeProf, profileList)
     }
 
+    private val extraStateFlow = combine(
+        _favoriteIds,
+        _autoCacheFavorites,
+        _cacheSizeMb,
+        _updateState
+    ) { favs, autoCache, cacheMb, updateSt ->
+        ExtraState(favs, autoCache, cacheMb, updateSt)
+    }
+
     val uiState: StateFlow<GalleryUiState> = combine(
         queryAndBundleFlow,
-        appStateFlow
-    ) { queryBundle, stateBundle ->
+        appStateFlow,
+        extraStateFlow
+    ) { queryBundle, stateBundle, extraState ->
         val bundle = queryBundle.bundle
         val query = queryBundle.query.trim().lowercase()
 
-        // Only include items that are successfully archived (strictly exclude failed items)
+        // Only include items that are successfully archived
         val raw = bundle.raw.filter { it.status.equals("archived", ignoreCase = true) }
         val mediaFilter = bundle.filter
         val sortOrder = bundle.sortOrder
@@ -122,14 +158,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val platforms = raw.map { it.platform.lowercase() }.filter { it.isNotBlank() }.distinct().sorted()
 
         val filtered = raw.filter { item ->
-            // Local storage filter
-            val matchesLocal = !localOnly || item.hasLocalMedia
+            // Local storage or local cache filter
+            val matchesLocal = !localOnly || item.hasLocalMedia || mediaCacheManager.isItemCached(item.id)
 
-            // Format type filter (All / Photos / Videos)
+            // Format type filter (All / Photos / Videos / Favorites)
             val matchesKind = when (mediaFilter) {
                 MediaFilter.ALL -> true
                 MediaFilter.PHOTOS -> !item.isVideo
                 MediaFilter.VIDEOS -> item.isVideo
+                MediaFilter.FAVORITES -> extraState.favoriteIds.contains(item.id)
             }
 
             // Platform source filter
@@ -165,7 +202,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             activeViewerIndex = stateBundle.viewerIdx,
             serverUrl = stateBundle.activeProf.url,
             profiles = stateBundle.profileList,
-            activeProfile = stateBundle.activeProf
+            activeProfile = stateBundle.activeProf,
+            favoriteIds = extraState.favoriteIds,
+            autoCacheFavorites = extraState.autoCache,
+            cacheSizeMb = extraState.cacheSizeMb,
+            updateState = extraState.updateState
         )
     }.stateIn(
         scope = viewModelScope,
@@ -174,12 +215,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             isLoading = true,
             serverUrl = profilePrefs.getActiveProfile().url,
             profiles = profilePrefs.getProfiles(),
-            activeProfile = profilePrefs.getActiveProfile()
+            activeProfile = profilePrefs.getActiveProfile(),
+            favoriteIds = profilePrefs.getFavoriteIds(),
+            autoCacheFavorites = profilePrefs.getAutoCacheFavorites()
         )
     )
 
     init {
         loadArchives()
+        checkForUpdates(silent = true)
     }
 
     private fun checkAndStartPolling() {
@@ -207,14 +251,138 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 .onSuccess { list ->
                     _rawItems.value = list.sortedByDescending { it.id }
                     _isLoading.value = false
+                    refreshCacheSize()
                     checkAndStartPolling()
                 }
                 .onFailure { error ->
-                    _errorMessage.value = error.localizedMessage ?: "Failed to connect to Bookmedia server"
+                    _errorMessage.value = error.localizedMessage ?: "Failed to connect to archie server"
                     _isLoading.value = false
                 }
         }
     }
+
+    // ------------------------------------------------------------------
+    // Favorites & Offline Caching
+    // ------------------------------------------------------------------
+
+    fun isFavorite(id: Long): Boolean {
+        return _favoriteIds.value.contains(id)
+    }
+
+    fun toggleFavorite(id: Long) {
+        val isNowFav = profilePrefs.toggleFavorite(id)
+        val updatedSet = profilePrefs.getFavoriteIds()
+        _favoriteIds.value = updatedSet
+
+        if (isNowFav && _autoCacheFavorites.value) {
+            viewModelScope.launch {
+                val item = _rawItems.value.firstOrNull { it.id == id }
+                if (item != null) {
+                    mediaCacheManager.cacheItemMedia(repository.getBaseUrl(), item)
+                    refreshCacheSize()
+                }
+            }
+        } else if (!isNowFav) {
+            viewModelScope.launch {
+                mediaCacheManager.removeCachedItem(id)
+                refreshCacheSize()
+            }
+        }
+    }
+
+    fun toggleFavoritesOnly() {
+        if (_selectedMediaFilter.value == MediaFilter.FAVORITES) {
+            setMediaFilter(MediaFilter.ALL)
+        } else {
+            setMediaFilter(MediaFilter.FAVORITES)
+        }
+    }
+
+    fun toggleAutoCacheFavorites() {
+        val next = !_autoCacheFavorites.value
+        profilePrefs.setAutoCacheFavorites(next)
+        _autoCacheFavorites.value = next
+    }
+
+    fun refreshCacheSize() {
+        _cacheSizeMb.value = mediaCacheManager.getCacheSizeBytes() / (1024f * 1024f)
+    }
+
+    fun clearMediaCache() {
+        viewModelScope.launch {
+            mediaCacheManager.clearCache()
+            refreshCacheSize()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // OTA In-App Updates
+    // ------------------------------------------------------------------
+
+    fun checkForUpdates(silent: Boolean = false) {
+        if (!silent) _updateState.value = UpdateState.Checking
+        viewModelScope.launch {
+            repository.fetchAppVersion()
+                .onSuccess { info ->
+                    if (info.versionCode > BuildConfig.VERSION_CODE) {
+                        _updateState.value = UpdateState.Available(info)
+                    } else {
+                        if (!silent) _updateState.value = UpdateState.UpToDate
+                    }
+                }
+                .onFailure { error ->
+                    if (!silent) {
+                        _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to check for updates")
+                    }
+                }
+        }
+    }
+
+    fun downloadAndInstallUpdate(context: Context) {
+        val current = _updateState.value
+        val versionInfo = when (current) {
+            is UpdateState.Available -> current.version
+            else -> return
+        }
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Downloading(0f)
+            val updatesDir = File(context.cacheDir, "updates").apply { if (!exists()) mkdirs() }
+            val apkFile = File(updatesDir, "archie-v${versionInfo.versionName}.apk")
+            repository.downloadApk(versionInfo.apkUrl, apkFile) { progress ->
+                _updateState.value = UpdateState.Downloading(progress)
+            }.onSuccess { file ->
+                _updateState.value = UpdateState.ReadyToInstall(file)
+                installApk(context, file)
+            }.onFailure { error ->
+                _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to download update")
+            }
+        }
+    }
+
+    private fun installApk(context: Context, apkFile: File) {
+        try {
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            _updateState.value = UpdateState.Error("Failed to launch installer: ${e.message}")
+        }
+    }
+
+    fun dismissUpdateBanner() {
+        _updateState.value = UpdateState.Idle
+    }
+
+    // ------------------------------------------------------------------
+    // Profiles
+    // ------------------------------------------------------------------
 
     fun switchProfile(profileId: String) {
         val found = _profiles.value.firstOrNull { it.id == profileId } ?: return
@@ -222,6 +390,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _activeProfile.value = found
         repository.updateBaseUrl(found.url)
         loadArchives()
+        checkForUpdates(silent = true)
     }
 
     fun addOrUpdateProfile(name: String, url: String, profileId: String? = null) {
@@ -261,7 +430,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private fun triggerFilterLoading() {
         viewModelScope.launch {
             _isFilterTransitioning.value = true
-            delay(120)
+            delay(100)
             _isFilterTransitioning.value = false
         }
     }
@@ -317,8 +486,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             repository.fetchThumbnail(rowId)
                 .onSuccess { thumbnailUrl ->
                     if (thumbnailUrl.isNotBlank()) {
-                        _rawItems.value = _rawItems.value.map { item ->
-                            if (item.id == rowId) item.copy(thumbnailUrl = thumbnailUrl) else item
+                        val current = _rawItems.value
+                        val idx = current.indexOfFirst { it.id == rowId }
+                        if (idx >= 0 && current[idx].thumbnailUrl != thumbnailUrl) {
+                            val mutable = current.toMutableList()
+                            mutable[idx] = current[idx].copy(thumbnailUrl = thumbnailUrl)
+                            _rawItems.value = mutable
                         }
                     }
                 }
@@ -399,5 +572,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val viewerIdx: Int?,
         val activeProf: ServerProfile,
         val profileList: List<ServerProfile>
+    )
+
+    private data class ExtraState(
+        val favoriteIds: Set<Long>,
+        val autoCache: Boolean,
+        val cacheSizeMb: Float,
+        val updateState: UpdateState
     )
 }

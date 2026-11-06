@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -63,6 +65,9 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -112,12 +117,185 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.bookmedia.gallery.BuildConfig
+import com.bookmedia.gallery.data.MediaCacheManager
+import com.bookmedia.gallery.model.AppVersionInfo
 import com.bookmedia.gallery.model.ArchiveItem
 import com.bookmedia.gallery.model.CarouselMediaEntry
 import com.bookmedia.gallery.model.MediaFilter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+@Composable
+fun UpdateBanner(
+    updateState: UpdateState,
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    when (updateState) {
+        is UpdateState.Available -> {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(4.dp),
+                color = SurfaceElevated,
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Update Available",
+                            tint = Accent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "New Version: v${updateState.version.versionName}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = TextPrimary
+                            )
+                            if (updateState.version.changelog.isNotBlank()) {
+                                Text(
+                                    text = updateState.version.changelog,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(2.dp),
+                            color = Accent,
+                            modifier = Modifier.clickable(onClick = onUpdate)
+                        ) {
+                            Text(
+                                text = "Update Now",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        is UpdateState.Downloading -> {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(4.dp),
+                color = SurfaceElevated,
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Downloading Update...",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${(updateState.progress * 100).toInt()}%",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Accent
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { updateState.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = Accent,
+                        trackColor = Color(0xFFDFD7CA)
+                    )
+                }
+            }
+        }
+        is UpdateState.ReadyToInstall -> {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(4.dp),
+                color = SurfaceElevated,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Update downloaded. Ready to install!",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2E7D32)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(2.dp),
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.clickable(onClick = onUpdate)
+                    ) {
+                        Text(
+                            text = "Install",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+        else -> {}
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,6 +305,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
     var showBrowseOptions by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+
+    val context = LocalContext.current
 
     BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog || showBrowseOptions || showSearch) {
         if (state.activeViewerIndex != null) {
@@ -150,10 +330,18 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
             GalleryTopBar(
                 isLocalOnly = state.isLocalOnly,
                 onToggleLocal = viewModel::toggleLocalOnly,
+                isFavoritesOnly = state.selectedMediaFilter == MediaFilter.FAVORITES,
+                onToggleFavoritesOnly = viewModel::toggleFavoritesOnly,
                 sortOrder = state.sortOrder,
                 onToggleSort = viewModel::toggleSortOrder,
                 onOpenSearch = { showSearch = !showSearch },
                 onOpenBrowseOptions = { showBrowseOptions = true }
+            )
+
+            UpdateBanner(
+                updateState = state.updateState,
+                onUpdate = { viewModel.downloadAndInstallUpdate(context) },
+                onDismiss = viewModel::dismissUpdateBanner
             )
 
             if (showSearch) {
@@ -241,7 +429,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                                 items = state.filteredItems,
                                 baseUrl = state.serverUrl,
                                 gridAspect = state.gridAspect,
-                                onThumbnailError = viewModel::ensureThumbnail,
+                                cacheManager = viewModel.mediaCacheManager,
+                                isFavorite = viewModel::isFavorite,
                                 onItemClick = { index -> viewModel.openViewer(index) }
                             )
                         }
@@ -273,6 +462,9 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 items = state.filteredItems,
                 initialIndex = initialIndex,
                 baseUrl = state.serverUrl,
+                cacheManager = viewModel.mediaCacheManager,
+                isFavorite = viewModel::isFavorite,
+                onToggleFavorite = viewModel::toggleFavorite,
                 onRequestLocalDownload = viewModel::requestLocalDownload,
                 onDeleteLocalMedia = viewModel::deleteLocalMedia,
                 onClose = viewModel::closeViewer
@@ -305,6 +497,12 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 isLocalOnly = state.isLocalOnly,
                 sortOrder = state.sortOrder,
                 gridAspect = state.gridAspect,
+                autoCacheFavorites = state.autoCacheFavorites,
+                cacheSizeMb = state.cacheSizeMb,
+                updateState = state.updateState,
+                onToggleAutoCache = viewModel::toggleAutoCacheFavorites,
+                onClearCache = viewModel::clearMediaCache,
+                onCheckForUpdates = { viewModel.checkForUpdates(silent = false) },
                 onApply = { filter, platform, localOnly, order, aspect ->
                     viewModel.setMediaFilter(filter)
                     viewModel.setPlatform(platform)
@@ -326,6 +524,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
 fun GalleryTopBar(
     isLocalOnly: Boolean,
     onToggleLocal: () -> Unit,
+    isFavoritesOnly: Boolean,
+    onToggleFavoritesOnly: () -> Unit,
     sortOrder: SortOrder,
     onToggleSort: () -> Unit,
     onOpenSearch: () -> Unit,
@@ -341,7 +541,7 @@ fun GalleryTopBar(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "Archie",
+            text = "archie",
             fontSize = 22.sp,
             fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Medium,
@@ -360,6 +560,18 @@ fun GalleryTopBar(
                     Icons.Default.SwapVert,
                     contentDescription = "Sort: ${sortOrder.label}",
                     tint = if (sortOrder == SortOrder.OLDEST) Accent else TextPrimary
+                )
+            }
+            IconButton(
+                onClick = onToggleFavoritesOnly,
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(if (isFavoritesOnly) Color(0xFFF3E2E2) else Color.Transparent, RoundedCornerShape(10.dp))
+            ) {
+                Icon(
+                    imageVector = if (isFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Favorites",
+                    tint = if (isFavoritesOnly) Accent else TextPrimary
                 )
             }
             IconButton(
@@ -386,6 +598,12 @@ fun BrowseOptionsSheet(
     isLocalOnly: Boolean,
     sortOrder: SortOrder,
     gridAspect: GridAspect,
+    autoCacheFavorites: Boolean,
+    cacheSizeMb: Float,
+    updateState: UpdateState,
+    onToggleAutoCache: () -> Unit,
+    onClearCache: () -> Unit,
+    onCheckForUpdates: () -> Unit,
     onApply: (MediaFilter, String?, Boolean, SortOrder, GridAspect) -> Unit,
     onOpenServerProfiles: () -> Unit,
     onDismiss: () -> Unit
@@ -543,6 +761,83 @@ fun BrowseOptionsSheet(
             }
 
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .background(SurfaceElevated)
+                    .clickable { onToggleAutoCache() }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("Auto-cache favorites", fontSize = 13.sp, color = TextPrimary)
+                    Text("Save starred media to phone", fontSize = 10.sp, color = TextSecondary)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(width = 44.dp, height = 24.dp)
+                        .background(if (autoCacheFavorites) Color(0xFFD8EADF) else BorderSubtle, CircleShape)
+                        .padding(start = if (autoCacheFavorites) 20.dp else 0.dp),
+                    contentAlignment = if (autoCacheFavorites) Alignment.CenterEnd else Alignment.CenterStart
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(if (autoCacheFavorites) Color(0xFF2F6B45) else SurfaceLight, CircleShape)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(SurfaceElevated)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Offline Cache: ${"%.1f".format(cacheSizeMb)} MB",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                TextButton(onClick = onClearCache) {
+                    Text("Clear Cache", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(SurfaceElevated)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "archie v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                TextButton(onClick = onCheckForUpdates) {
+                    Text(
+                        text = when (updateState) {
+                            is UpdateState.Checking -> "Checking..."
+                            is UpdateState.Available -> "Update Ready!"
+                            is UpdateState.UpToDate -> "Up to date"
+                            else -> "Check Update"
+                        },
+                        color = Accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -584,7 +879,8 @@ fun MediaGrid(
     items: List<ArchiveItem>,
     baseUrl: String,
     gridAspect: GridAspect,
-    onThumbnailError: (Long) -> Unit,
+    cacheManager: MediaCacheManager,
+    isFavorite: (Long) -> Boolean,
     onItemClick: (Int) -> Unit
 ) {
     LazyVerticalGrid(
@@ -599,7 +895,8 @@ fun MediaGrid(
                 item = item,
                 baseUrl = baseUrl,
                 aspectRatio = gridAspect.ratio,
-                onThumbnailError = onThumbnailError,
+                cacheManager = cacheManager,
+                isFavorite = isFavorite(item.id),
                 onClick = { onItemClick(index) }
             )
         }
@@ -611,14 +908,14 @@ fun MediaGridThumbnail(
     item: ArchiveItem,
     baseUrl: String,
     aspectRatio: Float,
-    onThumbnailError: (Long) -> Unit,
+    cacheManager: MediaCacheManager,
+    isFavorite: Boolean,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageSources = remember(item, baseUrl) { item.resolveThumbnailCandidates(baseUrl) }
-    var imageSourceIndex by remember(imageSources) { mutableStateOf(0) }
-    var thumbnailRequested by remember(item.id) { mutableStateOf(false) }
-    val imageSource = imageSources.getOrNull(imageSourceIndex).orEmpty()
+    val imageSource = remember(item.id, item.thumbnailUrl, item.localUrl, baseUrl) {
+        item.resolveThumbnailUrl(baseUrl, cacheManager)
+    }
 
     Box(
         modifier = Modifier
@@ -627,38 +924,21 @@ fun MediaGridThumbnail(
             .background(SurfaceElevated)
             .clickable(onClick = onClick)
     ) {
-        var imageFailed by remember(imageSources) { mutableStateOf(imageSources.isEmpty()) }
+        var imageFailed by remember(imageSource) { mutableStateOf(imageSource.isBlank()) }
 
-        if (imageSource.isNotBlank()) {
+        if (imageSource.isNotBlank() && !imageFailed) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageSource)
-                    .size(360, 720)
+                    .memoryCacheKey("thumb_${item.id}")
+                    .diskCacheKey("thumb_${item.id}")
                     .crossfade(false)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                onSuccess = { imageFailed = false },
-                onError = {
-                    if (imageSourceIndex < imageSources.lastIndex) {
-                        imageSourceIndex += 1
-                    } else {
-                        imageFailed = true
-                        if (!thumbnailRequested) {
-                            thumbnailRequested = true
-                            onThumbnailError(item.id)
-                        }
-                    }
-                }
+                onError = { imageFailed = true }
             )
-        } else {
-            LaunchedEffect(item.id, imageSources) {
-                if (!thumbnailRequested) {
-                    thumbnailRequested = true
-                    onThumbnailError(item.id)
-                }
-            }
         }
 
         if (imageFailed) {
@@ -674,6 +954,23 @@ fun MediaGridThumbnail(
                     contentDescription = "No Media",
                     tint = TextSecondary,
                     modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        if (isFavorite) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+                    .size(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = "Favorite",
+                    tint = Accent,
+                    modifier = Modifier.size(13.dp)
                 )
             }
         }
@@ -707,7 +1004,7 @@ fun MediaGridThumbnail(
                     modifier = Modifier.size(15.dp)
                 )
             }
-        } else if (item.hasLocalMedia) {
+        } else if (item.hasLocalMedia || cacheManager.isItemCached(item.id)) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -717,8 +1014,8 @@ fun MediaGridThumbnail(
             ) {
                 Icon(
                     imageVector = Icons.Default.DownloadDone,
-                    contentDescription = "Saved to server",
-                    tint = Color(0xFF2F6B45),
+                    contentDescription = "Saved",
+                    tint = Color(0xFF275A3C),
                     modifier = Modifier.size(15.dp)
                 )
             }
@@ -727,8 +1024,8 @@ fun MediaGridThumbnail(
         if (item.isCarousel) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(7.dp)
+                    .align(if (isFavorite) Alignment.BottomStart else Alignment.TopStart)
+                    .padding(4.dp)
                     .background(Color(0xFF2A201C).copy(alpha = 0.78f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
@@ -758,6 +1055,9 @@ fun MediaViewerOverlay(
     items: List<ArchiveItem>,
     initialIndex: Int,
     baseUrl: String,
+    cacheManager: MediaCacheManager,
+    isFavorite: (Long) -> Boolean,
+    onToggleFavorite: (Long) -> Unit,
     onRequestLocalDownload: (Long) -> Unit,
     onDeleteLocalMedia: (Long) -> Unit,
     onClose: () -> Unit
@@ -821,6 +1121,7 @@ fun MediaViewerOverlay(
             PostMediaViewer(
                 post = post,
                 baseUrl = baseUrl,
+                cacheManager = cacheManager,
                 isActivePost = canPlay,
                 onActivePlayerChanged = { player ->
                     if (canPlay) {
@@ -863,19 +1164,31 @@ fun MediaViewerOverlay(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
-                    currentPost?.let {
-                        IconButton(
-                            onClick = {
-                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(it.displayUrl))
-                                context.startActivity(browserIntent)
-                            },
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Open source",
-                                tint = Color.White
-                            )
+                    currentPost?.let { post ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { onToggleFavorite(post.id) },
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isFavorite(post.id)) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = "Favorite",
+                                    tint = if (isFavorite(post.id)) Color(0xFFE25C6A) else Color.White
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(post.displayUrl))
+                                    context.startActivity(browserIntent)
+                                },
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.OpenInNew,
+                                    contentDescription = "Open source",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                 }
@@ -984,17 +1297,18 @@ fun MediaViewerOverlay(
 fun PostMediaViewer(
     post: ArchiveItem,
     baseUrl: String,
+    cacheManager: MediaCacheManager,
     isActivePost: Boolean,
     onActivePlayerChanged: (ExoPlayer?) -> Unit = {}
 ) {
-    val mediaEntries = remember(post, baseUrl) { post.resolveMediaList(baseUrl) }
+    val mediaEntries = remember(post, baseUrl, cacheManager) { post.resolveMediaList(baseUrl, cacheManager) }
 
     if (mediaEntries.size <= 1) {
         val entry = mediaEntries.firstOrNull() ?: CarouselMediaEntry(1, "", false, "")
         if (entry.isVideo) {
             VideoPlayerPage(
                 videoUrl = entry.url,
-                thumbnailUrl = post.resolveThumbnailUrl(baseUrl),
+                thumbnailUrl = post.resolveThumbnailUrl(baseUrl, cacheManager),
                 isActive = isActivePost,
                 onPlayerReady = onActivePlayerChanged
             )
@@ -1022,7 +1336,7 @@ fun PostMediaViewer(
                 if (entry.isVideo) {
                     VideoPlayerPage(
                         videoUrl = entry.url,
-                        thumbnailUrl = post.resolveThumbnailUrl(baseUrl),
+                        thumbnailUrl = post.resolveThumbnailUrl(baseUrl, cacheManager),
                         isActive = isEntryActive,
                         onPlayerReady = { player ->
                             if (isEntryActive) {

@@ -1,5 +1,6 @@
 package com.bookmedia.gallery.data
 
+import com.bookmedia.gallery.model.AppVersionInfo
 import com.bookmedia.gallery.model.ArchiveItem
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -13,6 +14,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
@@ -89,6 +92,68 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
         runCatching {
             val response: ThumbnailResponse = client.post("$baseUrl/api/archives/$rowId/fetch-thumbnail").body()
             response.thumbnailUrl
+        }
+    }
+
+    suspend fun fetchAppVersion(): Result<AppVersionInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response: AppVersionInfo = client.get("$baseUrl/api/app/version").body()
+            response
+        }
+    }
+
+    suspend fun downloadApk(
+        apkUrl: String,
+        destinationFile: File,
+        onProgress: ((Float) -> Unit)? = null
+    ): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            val fullUrl = if (apkUrl.startsWith("http://") || apkUrl.startsWith("https://")) {
+                apkUrl
+            } else {
+                val trimmedBase = baseUrl.trimEnd('/')
+                val trimmedPath = apkUrl.trimStart('/')
+                "$trimmedBase/$trimmedPath"
+            }
+            destinationFile.parentFile?.mkdirs()
+            val tempFile = File(destinationFile.parentFile, "${destinationFile.name}.download")
+
+            val url = URL(fullUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 40000
+            connection.instanceFollowRedirects = true
+
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("Server returned HTTP ${connection.responseCode}")
+            }
+
+            val totalBytes = connection.contentLengthLong
+            var downloadedBytes = 0L
+
+            connection.inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(32768)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        downloadedBytes += read
+                        if (totalBytes > 0 && onProgress != null) {
+                            val progress = (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            onProgress(progress)
+                        }
+                    }
+                }
+            }
+
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (destinationFile.exists()) destinationFile.delete()
+                tempFile.renameTo(destinationFile)
+                destinationFile
+            } else {
+                tempFile.delete()
+                throw IllegalStateException("Downloaded file is empty")
+            }
         }
     }
 }

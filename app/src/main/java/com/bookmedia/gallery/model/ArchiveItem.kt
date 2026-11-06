@@ -1,5 +1,6 @@
 package com.bookmedia.gallery.model
 
+import com.bookmedia.gallery.data.MediaCacheManager
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -116,7 +117,13 @@ data class ArchiveItem(
             .toList()
     }
 
-    fun resolveThumbnailUrl(baseUrl: String): String {
+    fun resolveThumbnailUrl(baseUrl: String, cacheManager: MediaCacheManager? = null): String {
+        if (cacheManager != null) {
+            val cachedThumb = cacheManager.getCachedThumbnailFile(id)
+            if (cachedThumb != null) {
+                return "file://${cachedThumb.absolutePath}"
+            }
+        }
         return resolveThumbnailCandidates(baseUrl).firstOrNull().orEmpty()
     }
 
@@ -134,7 +141,17 @@ data class ArchiveItem(
         }
     }
 
-    fun resolvePlayableMediaUrl(baseUrl: String): String {
+    fun resolvePlayableMediaUrl(baseUrl: String, cacheManager: MediaCacheManager? = null): String {
+        if (cacheManager != null) {
+            val itemDir = cacheManager.getItemDir(id)
+            if (itemDir.exists()) {
+                val cachedVid = itemDir.listFiles { _, name ->
+                    val n = name.lowercase()
+                    n.endsWith(".mp4") || n.endsWith(".mov") || n.endsWith(".webm") || n.endsWith(".mkv")
+                }?.firstOrNull()
+                if (cachedVid != null) return "file://${cachedVid.absolutePath}"
+            }
+        }
         if (hasLocalMedia) {
             val fileUrl = if (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg")) localUrl else (validLocalFiles.firstOrNull()?.url ?: "")
             val trimmedBase = baseUrl.trimEnd('/')
@@ -153,12 +170,13 @@ data class ArchiveItem(
     /**
      * Resolve all carousel media items for fullscreen viewing
      */
-    fun resolveMediaList(baseUrl: String): List<CarouselMediaEntry> {
+    fun resolveMediaList(baseUrl: String, cacheManager: MediaCacheManager? = null): List<CarouselMediaEntry> {
         val trimmedBase = baseUrl.trimEnd('/')
         val actualFiles = validLocalFiles
         if (actualFiles.isNotEmpty()) {
             return actualFiles.mapIndexed { idx, lf ->
-                val fullUrl = "$trimmedBase/${lf.url.trimStart('/')}"
+                val cached = cacheManager?.getCachedFile(id, lf.filename)
+                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/${lf.url.trimStart('/')}"
                 CarouselMediaEntry(
                     index = idx + 1,
                     url = fullUrl,
@@ -171,7 +189,8 @@ data class ArchiveItem(
         if (mediaItems.isNotEmpty() && hasLocalMedia) {
             return mediaItems.map { mi ->
                 val isVid = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true)
-                val fullUrl = "$trimmedBase/media/$id/${mi.filename}"
+                val cached = cacheManager?.getCachedFile(id, mi.filename)
+                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/media/$id/${mi.filename}"
                 CarouselMediaEntry(
                     index = mi.index,
                     url = fullUrl,
@@ -182,7 +201,7 @@ data class ArchiveItem(
         }
 
         if (mediaItems.isNotEmpty()) {
-            val previewUrl = resolveThumbnailUrl(baseUrl)
+            val previewUrl = resolveThumbnailUrl(baseUrl, cacheManager)
             return listOf(
                 CarouselMediaEntry(
                     index = 1,
@@ -194,9 +213,9 @@ data class ArchiveItem(
         }
 
         // Single fallback item
-        val singleUrl = resolvePlayableMediaUrl(baseUrl)
+        val singleUrl = resolvePlayableMediaUrl(baseUrl, cacheManager)
         val finalUrl = if (isVideo && singleUrl.isBlank()) {
-            resolveThumbnailUrl(baseUrl).ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+            resolveThumbnailUrl(baseUrl, cacheManager).ifBlank { submittedUrl.ifBlank { canonicalUrl } }
         } else {
             singleUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
         }
@@ -221,5 +240,6 @@ data class CarouselMediaEntry(
 enum class MediaFilter(val label: String) {
     ALL("All"),
     PHOTOS("Photos"),
-    VIDEOS("Videos")
+    VIDEOS("Videos"),
+    FAVORITES("Favorites")
 }

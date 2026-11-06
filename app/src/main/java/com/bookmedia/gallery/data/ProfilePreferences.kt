@@ -23,6 +23,8 @@ class ProfilePreferences(context: Context) {
         private const val KEY_PROFILES = "saved_server_profiles"
         private const val KEY_ACTIVE_ID = "active_profile_id"
         private const val KEY_GRID_ASPECT = "grid_aspect"
+        private const val KEY_FAVORITES = "user_favorites_set"
+        private const val KEY_AUTO_CACHE = "auto_cache_favorites"
         private const val DEFAULT_URL = "http://192.168.18.11:8080"
     }
 
@@ -71,5 +73,35 @@ class ProfilePreferences(context: Context) {
             name = "Home WiFi",
             url = DEFAULT_URL
         )
+    }
+
+    fun getFavoriteIds(): Set<Long> {
+        val set = prefs.getStringSet(KEY_FAVORITES, emptySet()) ?: emptySet()
+        return set.mapNotNull { it.toLongOrNull() }.toSet()
+    }
+
+    fun toggleFavorite(id: Long): Boolean {
+        val current = getFavoriteIds().toMutableSet()
+        val isNowFav = if (current.contains(id)) {
+            current.remove(id)
+            false
+        } else {
+            current.add(id)
+            true
+        }
+        prefs.edit().putStringSet(KEY_FAVORITES, current.map { it.toString() }.toSet()).apply()
+        return isNowFav
+    }
+
+    fun isFavorite(id: Long): Boolean {
+        return getFavoriteIds().contains(id)
+    }
+
+    fun getAutoCacheFavorites(): Boolean {
+        return prefs.getBoolean(KEY_AUTO_CACHE, true)
+    }
+
+    fun setAutoCacheFavorites(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CACHE, enabled).apply()
     }
 }
