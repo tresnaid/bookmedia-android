@@ -16,7 +16,8 @@ data class LocalMediaFile(
 data class MediaItemInfo(
     val index: Int = 1,
     val filename: String = "",
-    val type: String = "photo"
+    val type: String = "photo",
+    @SerialName("thumbnail_url") val thumbnailUrl: String = ""
 )
 
 @Serializable
@@ -186,9 +187,13 @@ data class ArchiveItem(
             }
         }
 
-        if (mediaItems.isNotEmpty() && hasLocalMedia) {
+        if (mediaItems.isNotEmpty()) {
             return mediaItems.map { mi ->
-                val isVid = mi.type == "video" || mi.filename.endsWith(".mp4", ignoreCase = true)
+                val isVid = mi.type.equals("video", ignoreCase = true) ||
+                    mi.filename.endsWith(".mp4", ignoreCase = true) ||
+                    mi.filename.endsWith(".mov", ignoreCase = true) ||
+                    mi.filename.endsWith(".webm", ignoreCase = true) ||
+                    mi.filename.endsWith(".mkv", ignoreCase = true)
                 val cached = cacheManager?.getCachedFile(id, mi.filename)
                 val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/media/$id/${mi.filename}"
                 CarouselMediaEntry(
@@ -198,18 +203,6 @@ data class ArchiveItem(
                     filename = mi.filename
                 )
             }
-        }
-
-        if (mediaItems.isNotEmpty()) {
-            val previewUrl = resolveThumbnailUrl(baseUrl, cacheManager)
-            return listOf(
-                CarouselMediaEntry(
-                    index = 1,
-                    url = previewUrl,
-                    isVideo = false,
-                    filename = mediaItems.firstOrNull()?.filename.orEmpty()
-                )
-            )
         }
 
         // Single fallback item
