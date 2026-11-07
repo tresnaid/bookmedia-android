@@ -32,6 +32,7 @@ data class ArchiveItem(
     @SerialName("thumbnail_url") val thumbnailUrl: String = "",
     @SerialName("local_url") val localUrl: String = "",
     @SerialName("local_files") val localFiles: List<LocalMediaFile> = emptyList(),
+    @SerialName("stored_locally") val storedLocally: Boolean = false,
     @SerialName("media_count") val mediaCount: Int = 1,
     @SerialName("media_items") val mediaItems: List<MediaItemInfo> = emptyList(),
     @SerialName("downloading_local") val downloadingLocal: Boolean = false,
@@ -45,10 +46,10 @@ data class ArchiveItem(
     val transcoded: Boolean = false
 ) {
     val validLocalFiles: List<LocalMediaFile>
-        get() = localFiles.filter { it.filename != "thumb.jpg" }
+        get() = localFiles.filter { it.filename != "thumb.jpg" && !it.filename.startsWith("thumb_") && it.size > 0L }
 
     val hasLocalMedia: Boolean
-        get() = (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg")) || validLocalFiles.isNotEmpty()
+        get() = storedLocally || validLocalFiles.isNotEmpty() || (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg") && localFiles.none { it.size == 0L })
 
     val totalMediaCount: Int
         get() = when {
