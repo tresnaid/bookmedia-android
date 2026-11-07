@@ -1315,7 +1315,10 @@ fun PostMediaViewer(
                 onActivePlayerChanged(null)
                 onDispose { }
             }
-            PhotoViewerPage(imageUrl = entry.url)
+            PhotoViewerPage(
+                imageUrl = entry.url,
+                thumbnailUrl = entry.thumbnailUrl.ifBlank { post.resolveThumbnailUrl(baseUrl, cacheManager) }
+            )
         }
     } else {
         // In-post Carousel Pager
@@ -1349,7 +1352,10 @@ fun PostMediaViewer(
                             onDispose { }
                         }
                     }
-                    PhotoViewerPage(imageUrl = entry.url)
+                    PhotoViewerPage(
+                        imageUrl = entry.url,
+                        thumbnailUrl = entry.thumbnailUrl.ifBlank { post.resolveThumbnailUrl(baseUrl, cacheManager) }
+                    )
                 }
             }
 
@@ -1380,7 +1386,10 @@ fun PostMediaViewer(
 }
 
 @Composable
-fun PhotoViewerPage(imageUrl: String) {
+fun PhotoViewerPage(
+    imageUrl: String,
+    thumbnailUrl: String = ""
+) {
     val context = LocalContext.current
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -1396,15 +1405,42 @@ fun PhotoViewerPage(imageUrl: String) {
             modifier = Modifier.fillMaxSize(),
             loading = {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (thumbnailUrl.isNotBlank()) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(thumbnailUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                     CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
                 }
             },
             error = {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(36.dp))
+                    if (thumbnailUrl.isNotBlank()) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(thumbnailUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Failed to load photo", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                        Text("Failed to load photo", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
                     }
                 }
             }

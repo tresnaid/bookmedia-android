@@ -100,7 +100,8 @@ class MediaCacheManager(private val context: Context) {
     private fun downloadToFile(urlString: String, destinationFile: File): Boolean {
         return try {
             val tempFile = File(destinationFile.parentFile, "${destinationFile.name}.tmp")
-            val url = URL(urlString)
+            val safeUrl = ArchiveItem.encodeUrlPath(urlString)
+            val url = URL(safeUrl)
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 10000
             conn.readTimeout = 25000

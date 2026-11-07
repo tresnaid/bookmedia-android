@@ -17,6 +17,7 @@ data class MediaItemInfo(
     val index: Int = 1,
     val filename: String = "",
     val type: String = "photo",
+    val url: String = "",
     @SerialName("thumbnail_url") val thumbnailUrl: String = ""
 )
 
@@ -138,11 +139,55 @@ data class ArchiveItem(
         return resolveThumbnailCandidates(baseUrl).firstOrNull().orEmpty()
     }
 
-    private fun resolveUrl(baseUrl: String, raw: String): String {
-        if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) return raw
-        val trimmedBase = baseUrl.trimEnd('/')
-        val trimmedPath = raw.trimStart('/')
-        return "$trimmedBase/$trimmedPath"
+    companion object {
+        fun encodeUrlPath(raw: String): String {
+            if (raw.isBlank() || raw.startsWith("file://", ignoreCase = true)) return raw
+            val schemeEnd = raw.indexOf("://")
+            val (base, pathAndQuery) = if (schemeEnd != -1) {
+                val pathStart = raw.indexOf('/', schemeEnd + 3)
+                if (pathStart == -1) return raw
+                raw.substring(0, pathStart) to raw.substring(pathStart)
+            } else {
+                "" to raw
+            }
+
+            val queryIdx = pathAndQuery.indexOf('?')
+            val (pathOnly, query) = if (queryIdx != -1) {
+                pathAndQuery.substring(0, queryIdx) to pathAndQuery.substring(queryIdx)
+            } else {
+                pathAndQuery to ""
+            }
+
+            val encodedPath = pathOnly.split('/').joinToString("/") { segment ->
+                if (segment.isEmpty()) ""
+                else {
+                    try {
+                        val decoded = java.net.URLDecoder.decode(segment, "UTF-8")
+                        java.net.URLEncoder.encode(decoded, "UTF-8")
+                            .replace("+", "%20")
+                            .replace("%21", "!")
+                            .replace("%27", "'")
+                            .replace("%28", "(")
+                            .replace("%29", ")")
+                            .replace("%7E", "~")
+                    } catch (_: Exception) {
+                        segment
+                    }
+                }
+            }
+            return "$base$encodedPath$query"
+        }
+    }
+
+    fun resolveUrl(baseUrl: String, raw: String): String {
+        val url = if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) {
+            raw
+        } else {
+            val trimmedBase = baseUrl.trimEnd('/')
+            val trimmedPath = raw.trimStart('/')
+            "$trimmedBase/$trimmedPath"
+        }
+        return encodeUrlPath(url)
     }
 
     private fun isImageUrl(value: String): Boolean {
@@ -167,7 +212,7 @@ data class ArchiveItem(
             val fileUrl = if (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg")) localUrl else (validLocalFiles.firstOrNull()?.url ?: "")
             val trimmedBase = baseUrl.trimEnd('/')
             val trimmedPath = fileUrl.trimStart('/')
-            return "$trimmedBase/$trimmedPath"
+            return resolveUrl(baseUrl, "$trimmedBase/$trimmedPath")
         }
         val directUrl = submittedUrl.ifBlank { canonicalUrl }
         // Only return if it's an actual direct playable media stream (not a webpage like tiktok.com/@user/video/...)
@@ -187,7 +232,7 @@ data class ArchiveItem(
         if (actualFiles.isNotEmpty()) {
             return actualFiles.mapIndexed { idx, lf ->
                 val cached = cacheManager?.getCachedFile(id, lf.filename)
-                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/${lf.url.trimStart('/')}"
+                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else resolveUrl(baseUrl, lf.url)
                 val itemThumb = if (idx == 0 && thumbnailUrl.isNotBlank()) {
                     resolveUrl(baseUrl, thumbnailUrl)
                 } else if (idx == 0) {
@@ -213,7 +258,8 @@ data class ArchiveItem(
                     mi.filename.endsWith(".webm", ignoreCase = true) ||
                     mi.filename.endsWith(".mkv", ignoreCase = true)
                 val cached = cacheManager?.getCachedFile(id, mi.filename)
-                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/media/$id/${mi.filename}"
+                val rawMediaUrl = mi.url.ifBlank { "/media/$id/${mi.filename}" }
+                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else resolveUrl(baseUrl, rawMediaUrl)
                 val itemThumb = when {
                     mi.thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, mi.thumbnailUrl)
                     mi.index == 1 && thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, thumbnailUrl)
