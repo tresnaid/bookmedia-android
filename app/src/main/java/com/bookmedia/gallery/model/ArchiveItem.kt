@@ -70,8 +70,20 @@ data class ArchiveItem(
     val isVideo: Boolean
         get() = platform.lowercase() in listOf("tiktok", "douyin") ||
                 isDirectVideo ||
-                (platform.lowercase() != "upload" &&
-                 thumbnailUrl.isNotEmpty() &&
+                mediaItems.any {
+                    it.type.equals("video", ignoreCase = true) ||
+                    it.filename.endsWith(".mp4", ignoreCase = true) ||
+                    it.filename.endsWith(".mov", ignoreCase = true) ||
+                    it.filename.endsWith(".webm", ignoreCase = true) ||
+                    it.filename.endsWith(".mkv", ignoreCase = true)
+                } ||
+                validLocalFiles.any {
+                    it.type.equals("video", ignoreCase = true) ||
+                    it.filename.endsWith(".mp4", ignoreCase = true) ||
+                    it.filename.endsWith(".mov", ignoreCase = true) ||
+                    it.filename.endsWith(".webm", ignoreCase = true)
+                } ||
+                (thumbnailUrl.isNotEmpty() &&
                  !submittedUrl.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)))
 
     val effectiveTitle: String
@@ -90,24 +102,22 @@ data class ArchiveItem(
                 it.type.equals("photo", ignoreCase = true) || isImageUrl(it.url) || isImageUrl(it.filename)
             }
 
-            if (isVideo) {
-                localPhotos.forEach { add(it.url) }
+            if (thumbnailUrl.isNotBlank()) {
                 add(thumbnailUrl)
-                add("/media/$id/thumb.jpg")
-                if (hasLocalMedia) add(localUrl)
-                add(submittedUrl)
-                add(canonicalUrl)
-            } else {
-                localPhotos.forEach { add(it.url) }
-                add(localUrl)
-                add(thumbnailUrl)
-                mediaItems
-                    .filter { it.type.equals("photo", ignoreCase = true) || isImageUrl(it.filename) }
-                    .forEach { add("/media/$id/${it.filename}") }
-                add(submittedUrl)
-                add(canonicalUrl)
-                add("/media/$id/thumb.jpg")
             }
+            add("/media/$id/thumb.jpg")
+
+            localPhotos.forEach { add(it.url) }
+            mediaItems.forEach { mi ->
+                if (mi.thumbnailUrl.isNotBlank()) add(mi.thumbnailUrl)
+                if (mi.type.equals("photo", ignoreCase = true) || isImageUrl(mi.filename)) {
+                    add("/media/$id/${mi.filename}")
+                }
+            }
+
+            if (hasLocalMedia) add(localUrl)
+            add(submittedUrl)
+            add(canonicalUrl)
         }
 
         return candidates
@@ -178,11 +188,19 @@ data class ArchiveItem(
             return actualFiles.mapIndexed { idx, lf ->
                 val cached = cacheManager?.getCachedFile(id, lf.filename)
                 val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/${lf.url.trimStart('/')}"
+                val itemThumb = if (idx == 0 && thumbnailUrl.isNotBlank()) {
+                    resolveUrl(baseUrl, thumbnailUrl)
+                } else if (idx == 0) {
+                    "$trimmedBase/media/$id/thumb.jpg"
+                } else {
+                    "$trimmedBase/media/$id/thumb_${idx + 1}.jpg"
+                }
                 CarouselMediaEntry(
                     index = idx + 1,
                     url = fullUrl,
                     isVideo = lf.type == "video" || lf.filename.endsWith(".mp4", ignoreCase = true) || lf.filename.endsWith(".mov", ignoreCase = true),
-                    filename = lf.filename
+                    filename = lf.filename,
+                    thumbnailUrl = itemThumb
                 )
             }
         }
@@ -196,11 +214,18 @@ data class ArchiveItem(
                     mi.filename.endsWith(".mkv", ignoreCase = true)
                 val cached = cacheManager?.getCachedFile(id, mi.filename)
                 val fullUrl = if (cached != null) "file://${cached.absolutePath}" else "$trimmedBase/media/$id/${mi.filename}"
+                val itemThumb = when {
+                    mi.thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, mi.thumbnailUrl)
+                    mi.index == 1 && thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, thumbnailUrl)
+                    mi.index == 1 -> "$trimmedBase/media/$id/thumb.jpg"
+                    else -> "$trimmedBase/media/$id/thumb_${mi.index}.jpg"
+                }
                 CarouselMediaEntry(
                     index = mi.index,
                     url = fullUrl,
                     isVideo = isVid,
-                    filename = mi.filename
+                    filename = mi.filename,
+                    thumbnailUrl = itemThumb
                 )
             }
         }
@@ -217,7 +242,8 @@ data class ArchiveItem(
                 index = 1,
                 url = finalUrl,
                 isVideo = isVideo && singleUrl.isNotBlank(),
-                filename = ""
+                filename = "",
+                thumbnailUrl = resolveThumbnailUrl(baseUrl, cacheManager)
             )
         )
     }
@@ -227,7 +253,8 @@ data class CarouselMediaEntry(
     val index: Int,
     val url: String,
     val isVideo: Boolean,
-    val filename: String
+    val filename: String,
+    val thumbnailUrl: String = ""
 )
 
 enum class MediaFilter(val label: String) {

@@ -930,9 +930,7 @@ fun MediaGridThumbnail(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageSource)
-                    .memoryCacheKey("thumb_${item.id}")
-                    .diskCacheKey("thumb_${item.id}")
-                    .crossfade(false)
+                    .crossfade(true)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
@@ -1308,7 +1306,7 @@ fun PostMediaViewer(
         if (entry.isVideo) {
             VideoPlayerPage(
                 videoUrl = entry.url,
-                thumbnailUrl = post.resolveThumbnailUrl(baseUrl, cacheManager),
+                thumbnailUrl = entry.thumbnailUrl.ifBlank { post.resolveThumbnailUrl(baseUrl, cacheManager) },
                 isActive = isActivePost,
                 onPlayerReady = onActivePlayerChanged
             )
@@ -1336,7 +1334,7 @@ fun PostMediaViewer(
                 if (entry.isVideo) {
                     VideoPlayerPage(
                         videoUrl = entry.url,
-                        thumbnailUrl = post.resolveThumbnailUrl(baseUrl, cacheManager),
+                        thumbnailUrl = entry.thumbnailUrl.ifBlank { post.resolveThumbnailUrl(baseUrl, cacheManager) },
                         isActive = isEntryActive,
                         onPlayerReady = { player ->
                             if (isEntryActive) {
