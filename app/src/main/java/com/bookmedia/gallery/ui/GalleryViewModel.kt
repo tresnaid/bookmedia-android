@@ -3,6 +3,9 @@ package com.bookmedia.gallery.ui
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bookmedia.gallery.BuildConfig
@@ -340,27 +343,41 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun downloadAndInstallUpdate(context: Context) {
         val current = _updateState.value
-        val versionInfo = when (current) {
-            is UpdateState.Available -> current.version
-            else -> return
-        }
-        viewModelScope.launch {
-            _updateState.value = UpdateState.Downloading(0f)
-            val updatesDir = File(context.cacheDir, "updates").apply { if (!exists()) mkdirs() }
-            val apkFile = File(updatesDir, "archie-v${versionInfo.versionName}.apk")
-            repository.downloadApk(versionInfo.apkUrl, apkFile) { progress ->
-                _updateState.value = UpdateState.Downloading(progress)
-            }.onSuccess { file ->
-                _updateState.value = UpdateState.ReadyToInstall(file)
-                installApk(context, file)
-            }.onFailure { error ->
-                _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to download update")
+        when (current) {
+            is UpdateState.ReadyToInstall -> {
+                installApk(context, current.apkFile)
             }
+            is UpdateState.Available -> {
+                val versionInfo = current.version
+                viewModelScope.launch {
+                    _updateState.value = UpdateState.Downloading(0f)
+                    val updatesDir = File(context.cacheDir, "updates").apply { if (!exists()) mkdirs() }
+                    val apkFile = File(updatesDir, "archie-v${versionInfo.versionName}.apk")
+                    repository.downloadApk(versionInfo.apkUrl, apkFile) { progress ->
+                        _updateState.value = UpdateState.Downloading(progress)
+                    }.onSuccess { file ->
+                        _updateState.value = UpdateState.ReadyToInstall(file)
+                        installApk(context, file)
+                    }.onFailure { error ->
+                        _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to download update")
+                    }
+                }
+            }
+            else -> return
         }
     }
 
-    private fun installApk(context: Context, apkFile: File) {
+    fun installApk(context: Context, apkFile: File) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                val permissionIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(permissionIntent)
+                return
+            }
+
             val contentUri = androidx.core.content.FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -369,6 +386,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(contentUri, "application/vnd.android.package-archive")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             }
             context.startActivity(intent)
         } catch (e: Exception) {

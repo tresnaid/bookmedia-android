@@ -38,6 +38,15 @@ fi
 export PATH="/opt/gradle/bin:$PATH"
 
 cd /home/tresnaid/project/bookmedia-android
+mkdir -p keystore
+if [ ! -f "keystore/archie.keystore" ]; then
+    echo "Generating permanent signing keystore..."
+    keytool -genkey -v -keystore keystore/archie.keystore \
+        -alias archie -keyalg RSA -keysize 2048 -validity 10000 \
+        -storepass archieapp -keypass archieapp \
+        -dname "CN=archie, OU=bookmedia, O=bookmedia, L=City, ST=State, C=US"
+fi
+
 echo "Building APK..."
 gradle assembleDebug --no-daemon
 

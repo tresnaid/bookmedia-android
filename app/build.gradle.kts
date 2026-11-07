@@ -13,15 +13,28 @@ android {
         applicationId = "com.bookmedia.gallery"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.3.12"
+        versionCode = 21
+        versionName = "0.3.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("permanent") {
+            storeFile = file("${rootDir}/keystore/archie.keystore")
+            storePassword = "archieapp"
+            keyAlias = "archie"
+            keyPassword = "archieapp"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("permanent")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("permanent")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
