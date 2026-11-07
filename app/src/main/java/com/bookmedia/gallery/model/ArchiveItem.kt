@@ -229,15 +229,14 @@ data class ArchiveItem(
      */
     fun resolveMediaList(baseUrl: String, cacheManager: MediaCacheManager? = null): List<CarouselMediaEntry> {
         val trimmedBase = baseUrl.trimEnd('/')
+        val defaultThumb = resolveThumbnailUrl(baseUrl, cacheManager)
         val actualFiles = validLocalFiles
         if (actualFiles.isNotEmpty()) {
             return actualFiles.mapIndexed { idx, lf ->
                 val cached = cacheManager?.getCachedFile(id, lf.filename)
                 val fullUrl = if (cached != null) "file://${cached.absolutePath}" else resolveUrl(baseUrl, lf.url)
-                val itemThumb = if (idx == 0 && thumbnailUrl.isNotBlank()) {
-                    resolveUrl(baseUrl, thumbnailUrl)
-                } else if (idx == 0) {
-                    "$trimmedBase/media/$id/thumb.jpg"
+                val itemThumb = if (idx == 0) {
+                    defaultThumb
                 } else {
                     "$trimmedBase/media/$id/thumb_${idx + 1}.jpg"
                 }
@@ -262,9 +261,8 @@ data class ArchiveItem(
                 val rawMediaUrl = mi.url.ifBlank { "/media/$id/${mi.filename}" }
                 val fullUrl = if (cached != null) "file://${cached.absolutePath}" else resolveUrl(baseUrl, rawMediaUrl)
                 val itemThumb = when {
+                    mi.index == 1 -> defaultThumb
                     mi.thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, mi.thumbnailUrl)
-                    mi.index == 1 && thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, thumbnailUrl)
-                    mi.index == 1 -> "$trimmedBase/media/$id/thumb.jpg"
                     else -> "$trimmedBase/media/$id/thumb_${mi.index}.jpg"
                 }
                 CarouselMediaEntry(

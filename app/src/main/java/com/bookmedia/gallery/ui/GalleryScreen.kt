@@ -1391,60 +1391,80 @@ fun PhotoViewerPage(
     thumbnailUrl: String = ""
 ) {
     val context = LocalContext.current
+    var isFullLoaded by remember(imageUrl) { mutableStateOf(false) }
+    var isFullFailed by remember(imageUrl) { mutableStateOf(false) }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        SubcomposeAsyncImage(
+        // 1. Instant background thumbnail layer (displays on frame 1 from memory/disk cache)
+        if (thumbnailUrl.isNotBlank() && !isFullLoaded) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(thumbnailUrl)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 2. High-resolution / Full HD foreground layer
+        AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
-                .crossfade(true)
+                .crossfade(250)
                 .build(),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
-            loading = {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (thumbnailUrl.isNotBlank()) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(thumbnailUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(32.dp))
-                }
+            onSuccess = {
+                isFullLoaded = true
+                isFullFailed = false
             },
-            error = {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (thumbnailUrl.isNotBlank()) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(thumbnailUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                            .padding(16.dp)
-                    ) {
-                        Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(36.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Failed to load photo", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
-                    }
-                }
+            onError = {
+                isFullFailed = true
             }
         )
+
+        // 3. Subtle non-blocking spinner if high-res is still streaming
+        if (!isFullLoaded && !isFullFailed) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 80.dp, end = 20.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = Color.White.copy(alpha = 0.85f),
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text("HD", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // 4. If high-res failed completely
+        if (isFullFailed) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(36.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Failed to load full photo", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+            }
+        }
     }
 }
 
@@ -1468,19 +1488,14 @@ fun VideoPlayerPage(
             contentAlignment = Alignment.Center
         ) {
             if (thumbnailUrl.isNotBlank()) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(thumbnailUrl)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Text(
@@ -1506,19 +1521,14 @@ fun VideoPlayerPage(
             contentAlignment = Alignment.Center
         ) {
             if (thumbnailUrl.isNotBlank()) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(thumbnailUrl)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 CircularProgressIndicator(color = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
