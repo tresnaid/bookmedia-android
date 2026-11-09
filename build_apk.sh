@@ -11,22 +11,26 @@ export PATH="$JAVA_HOME/bin:$PATH"
 export ANDROID_HOME="/opt/android-sdk"
 mkdir -p "$ANDROID_HOME/cmdline-tools"
 
-if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
-    echo "Downloading Android Commandline Tools..."
-    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
-    unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
-    mv /tmp/cmdline-tools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
-    rm -rf /tmp/cmdline-tools*
+if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then
+    if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+        echo "Downloading Android Commandline Tools..."
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+        mv /tmp/cmdline-tools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+        rm -rf /tmp/cmdline-tools*
+    fi
+
+    export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+
+    echo "Accepting SDK licenses..."
+    yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+    echo "Installing Android platforms and build-tools..."
+    rm -rf "$ANDROID_HOME/.temp"
+    yes | sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0" > /dev/null 2>&1 || true
+else
+    export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 fi
-
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-
-echo "Accepting SDK licenses..."
-yes | sdkmanager --licenses > /dev/null 2>&1 || true
-
-echo "Installing Android platforms and build-tools..."
-rm -rf "$ANDROID_HOME/.temp"
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "build-tools;34.0.0" > /dev/null 2>&1
 
 echo "Installing Gradle..."
 if [ ! -f "/opt/gradle/bin/gradle" ]; then
