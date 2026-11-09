@@ -53,8 +53,8 @@ data class ArchiveItem(
 
     val totalMediaCount: Int
         get() = when {
-            validLocalFiles.isNotEmpty() -> validLocalFiles.size
             mediaItems.isNotEmpty() -> mediaItems.size
+            validLocalFiles.isNotEmpty() -> validLocalFiles.size
             mediaCount > 1 -> mediaCount
             else -> 1
         }
@@ -230,6 +230,43 @@ data class ArchiveItem(
     fun resolveMediaList(baseUrl: String, cacheManager: MediaCacheManager? = null): List<CarouselMediaEntry> {
         val trimmedBase = baseUrl.trimEnd('/')
         val defaultThumb = resolveThumbnailUrl(baseUrl, cacheManager)
+
+        if (mediaItems.isNotEmpty()) {
+            val localMap = validLocalFiles.associateBy { it.filename }
+            return mediaItems.mapIndexed { idx, mi ->
+                val isVid = mi.type.equals("video", ignoreCase = true) ||
+                    mi.filename.endsWith(".mp4", ignoreCase = true) ||
+                    mi.filename.endsWith(".mov", ignoreCase = true) ||
+                    mi.filename.endsWith(".webm", ignoreCase = true) ||
+                    mi.filename.endsWith(".mkv", ignoreCase = true)
+                val cached = cacheManager?.getCachedFile(id, mi.filename)
+                val lf = localMap[mi.filename]
+                val rawMediaUrl = when {
+                    lf != null && lf.url.isNotBlank() -> lf.url
+                    mi.url.isNotBlank() -> mi.url
+                    mi.filename.isNotBlank() -> "/media/$id/${mi.filename}"
+                    else -> ""
+                }
+                val fullUrl = when {
+                    cached != null -> "file://${cached.absolutePath}"
+                    rawMediaUrl.isNotBlank() -> resolveUrl(baseUrl, rawMediaUrl)
+                    else -> resolvePlayableMediaUrl(baseUrl, cacheManager).ifBlank { defaultThumb }
+                }
+                val itemThumb = when {
+                    mi.thumbnailUrl.isNotBlank() && mi.thumbnailUrl != "/media/$id/thumb.jpg" -> resolveUrl(baseUrl, mi.thumbnailUrl)
+                    idx == 0 -> defaultThumb
+                    else -> "$trimmedBase/media/$id/thumb_${idx + 1}.jpg"
+                }
+                CarouselMediaEntry(
+                    index = mi.index,
+                    url = fullUrl,
+                    isVideo = isVid,
+                    filename = mi.filename,
+                    thumbnailUrl = itemThumb
+                )
+            }
+        }
+
         val actualFiles = validLocalFiles
         if (actualFiles.isNotEmpty()) {
             return actualFiles.mapIndexed { idx, lf ->
@@ -245,31 +282,6 @@ data class ArchiveItem(
                     url = fullUrl,
                     isVideo = lf.type == "video" || lf.filename.endsWith(".mp4", ignoreCase = true) || lf.filename.endsWith(".mov", ignoreCase = true),
                     filename = lf.filename,
-                    thumbnailUrl = itemThumb
-                )
-            }
-        }
-
-        if (mediaItems.isNotEmpty()) {
-            return mediaItems.map { mi ->
-                val isVid = mi.type.equals("video", ignoreCase = true) ||
-                    mi.filename.endsWith(".mp4", ignoreCase = true) ||
-                    mi.filename.endsWith(".mov", ignoreCase = true) ||
-                    mi.filename.endsWith(".webm", ignoreCase = true) ||
-                    mi.filename.endsWith(".mkv", ignoreCase = true)
-                val cached = cacheManager?.getCachedFile(id, mi.filename)
-                val rawMediaUrl = mi.url.ifBlank { "/media/$id/${mi.filename}" }
-                val fullUrl = if (cached != null) "file://${cached.absolutePath}" else resolveUrl(baseUrl, rawMediaUrl)
-                val itemThumb = when {
-                    mi.index == 1 -> defaultThumb
-                    mi.thumbnailUrl.isNotBlank() -> resolveUrl(baseUrl, mi.thumbnailUrl)
-                    else -> "$trimmedBase/media/$id/thumb_${mi.index}.jpg"
-                }
-                CarouselMediaEntry(
-                    index = mi.index,
-                    url = fullUrl,
-                    isVideo = isVid,
-                    filename = mi.filename,
                     thumbnailUrl = itemThumb
                 )
             }
