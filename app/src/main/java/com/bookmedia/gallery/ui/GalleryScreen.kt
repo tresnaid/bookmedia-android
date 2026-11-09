@@ -1359,27 +1359,101 @@ fun PostMediaViewer(
                 }
             }
 
-            // Carousel Dot Indicator
+            // Adaptive Carousel Indicator with Sliding Window & First/Last Badges
+            val total = mediaEntries.size
+            val current = innerPagerState.currentPage
+            val isFirst = current == 0
+            val isLast = current == total - 1
+
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 85.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                repeat(mediaEntries.size) { index ->
-                    val isCurrent = innerPagerState.currentPage == index
+                if (isFirst) {
                     Box(
                         modifier = Modifier
-                            .size(if (isCurrent) 6.dp else 5.dp)
-                            .background(
-                                color = if (isCurrent) Color.White else Color.White.copy(alpha = 0.4f),
-                                shape = CircleShape
-                            )
-                    )
+                            .background(Color(0xFFE8913A), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "FIRST",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
+
+                if (total <= 7) {
+                    // Small set: show all dots
+                    repeat(total) { index ->
+                        val isCurr = current == index
+                        Box(
+                            modifier = Modifier
+                                .size(if (isCurr) 7.dp else 4.5.dp)
+                                .background(
+                                    color = if (isCurr) Color.White else Color.White.copy(alpha = 0.35f),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                } else {
+                    // Large set: show sliding window of 5 dots
+                    val windowSize = 5
+                    val half = windowSize / 2
+                    val startDot = (current - half).coerceIn(0, total - windowSize)
+                    val endDot = startDot + windowSize - 1
+
+                    for (idx in startDot..endDot) {
+                        val isCurr = current == idx
+                        val isEdge = (idx == startDot && startDot > 0) || (idx == endDot && endDot < total - 1)
+                        val dotSize = when {
+                            isCurr -> 7.dp
+                            isEdge -> 3.dp
+                            else -> 4.5.dp
+                        }
+                        val dotAlpha = when {
+                            isCurr -> 1.0f
+                            isEdge -> 0.25f
+                            else -> 0.45f
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(dotSize)
+                                .background(
+                                    color = Color.White.copy(alpha = dotAlpha),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                }
+
+                if (isLast) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFE8913A), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "LAST",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Text(
+                    text = "${current + 1}/$total",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
