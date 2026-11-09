@@ -1359,11 +1359,9 @@ fun PostMediaViewer(
                 }
             }
 
-            // Adaptive Carousel Indicator with Sliding Window & First/Last Badges
+            // Adaptive Carousel Indicator with Sliding Window
             val total = mediaEntries.size
             val current = innerPagerState.currentPage
-            val isFirst = current == 0
-            val isLast = current == total - 1
 
             Row(
                 modifier = Modifier
@@ -1374,21 +1372,6 @@ fun PostMediaViewer(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isFirst) {
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFE8913A), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = "FIRST",
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
                 if (total <= 7) {
                     // Small set: show all dots
                     repeat(total) { index ->
@@ -1429,21 +1412,6 @@ fun PostMediaViewer(
                                     color = Color.White.copy(alpha = dotAlpha),
                                     shape = CircleShape
                                 )
-                        )
-                    }
-                }
-
-                if (isLast) {
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFE8913A), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                    ) {
-                        Text(
-                            text = "LAST",
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
