@@ -32,6 +32,7 @@ echo "Installing Gradle..."
 if [ ! -f "/opt/gradle/bin/gradle" ]; then
     wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -O /tmp/gradle.zip
     unzip -q /tmp/gradle.zip -d /tmp/gradle-extract
+    mkdir -p /opt/gradle
     cp -r /tmp/gradle-extract/gradle-8.10.2/* /opt/gradle/
     rm -rf /tmp/gradle*
 fi
@@ -49,5 +50,20 @@ fi
 
 echo "Building APK..."
 gradle assembleDebug --no-daemon
+
+APK_OUT="app/build/outputs/apk/debug/app-debug.apk"
+if [ -f "$APK_OUT" ]; then
+    echo "Copying APK to distribution locations..."
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia-gallery.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/src/bookmedia/web/archie.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/src/bookmedia/web/bookmedia-gallery.apk 2>/dev/null || true
+    mkdir -p /home/tresnaid/project/bookmedia/data/media/0 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0318.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/bookmedia-gallery.apk 2>/dev/null || true
+    mkdir -p /home/tresnaid/project/bookmedia/data/media/apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/apk/archie.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/apk/bookmedia-gallery.apk 2>/dev/null || true
+fi
 
 echo "=== Build finished! ==="
