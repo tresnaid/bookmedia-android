@@ -60,6 +60,7 @@ if [ -f "$APK_OUT" ]; then
     mkdir -p /home/tresnaid/project/bookmedia/data/media/0 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie.apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0318.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0319.apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/bookmedia-gallery.apk 2>/dev/null || true
     mkdir -p /home/tresnaid/project/bookmedia/data/media/apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/apk/archie.apk 2>/dev/null || true
