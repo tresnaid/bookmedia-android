@@ -8,31 +8,78 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 class MediaCacheManager(private val context: Context) {
+    private val cachedItemIds = ConcurrentHashMap.newKeySet<Long>()
+    private val cachedThumbnails = ConcurrentHashMap<Long, File>()
+    @Volatile private var isInitialized = false
+
     private val cacheBaseDir: File
         get() = File(context.filesDir, "media_cache").apply { if (!exists()) mkdirs() }
+
+    fun initializeCacheIndex() {
+        try {
+            val base = File(context.filesDir, "media_cache")
+            if (!base.exists() || !base.isDirectory) {
+                isInitialized = true
+                return
+            }
+            val itemDirs = base.listFiles { f -> f.isDirectory } ?: return
+            for (dir in itemDirs) {
+                val id = dir.name.toLongOrNull() ?: continue
+                val files = dir.listFiles() ?: continue
+                if (files.any { it.length() > 0 }) {
+                    cachedItemIds.add(id)
+                    val thumb = files.firstOrNull { f ->
+                        f.length() > 0 && (f.name == "thumb.jpg" || f.name == "thumb.png" || f.name == "thumbnail.jpg" || f.name == "preview.jpg")
+                    } ?: files.firstOrNull { f ->
+                        f.length() > 0 && f.name.lowercase().let { it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") || it.endsWith(".webp") }
+                    }
+                    if (thumb != null) {
+                        cachedThumbnails[id] = thumb
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            isInitialized = true
+        }
+    }
 
     fun getItemDir(itemId: Long): File {
         return File(cacheBaseDir, itemId.toString()).apply { if (!exists()) mkdirs() }
     }
 
     fun getCachedThumbnailFile(itemId: Long): File? {
+        val mem = cachedThumbnails[itemId]
+        if (mem != null && mem.exists() && mem.length() > 0) return mem
+        if (!cachedItemIds.contains(itemId) && isInitialized) return null
+
         val dir = File(cacheBaseDir, itemId.toString())
         if (!dir.exists() || !dir.isDirectory) return null
         val candidates = listOf("thumb.jpg", "thumb.png", "thumbnail.jpg", "preview.jpg")
         for (name in candidates) {
             val f = File(dir, name)
-            if (f.exists() && f.length() > 0) return f
+            if (f.exists() && f.length() > 0) {
+                cachedThumbnails[itemId] = f
+                cachedItemIds.add(itemId)
+                return f
+            }
         }
         val firstImage = dir.listFiles { _, name ->
             val n = name.lowercase()
             n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp")
-        }?.firstOrNull()
-        return if (firstImage != null && firstImage.length() > 0) firstImage else null
+        }?.firstOrNull { it.length() > 0 }
+        if (firstImage != null) {
+            cachedThumbnails[itemId] = firstImage
+            cachedItemIds.add(itemId)
+        }
+        return firstImage
     }
 
     fun getCachedFile(itemId: Long, filename: String): File? {
+        if (!isItemCached(itemId)) return null
         val dir = File(cacheBaseDir, itemId.toString())
         if (!dir.exists()) return null
         val cleanName = File(filename).name
@@ -41,10 +88,15 @@ class MediaCacheManager(private val context: Context) {
     }
 
     fun isItemCached(itemId: Long): Boolean {
-        val dir = File(cacheBaseDir, itemId.toString())
-        if (!dir.exists() || !dir.isDirectory) return false
-        val files = dir.listFiles() ?: return false
-        return files.any { it.length() > 0 }
+        if (cachedItemIds.contains(itemId)) return true
+        if (!isInitialized) {
+            val dir = File(cacheBaseDir, itemId.toString())
+            if (!dir.exists() || !dir.isDirectory) return false
+            val hasFiles = dir.listFiles()?.any { it.length() > 0 } == true
+            if (hasFiles) cachedItemIds.add(itemId)
+            return hasFiles
+        }
+        return false
     }
 
     suspend fun cacheItemMedia(baseUrl: String, item: ArchiveItem): Boolean = withContext(Dispatchers.IO) {
@@ -93,6 +145,8 @@ class MediaCacheManager(private val context: Context) {
                 }
                 downloadToFile(fullUrl, fileTarget)
             }
+            cachedItemIds.add(item.id)
+            getCachedThumbnailFile(item.id)
             true
         }.getOrDefault(false)
     }
@@ -131,6 +185,8 @@ class MediaCacheManager(private val context: Context) {
     }
 
     fun removeCachedItem(itemId: Long) {
+        cachedItemIds.remove(itemId)
+        cachedThumbnails.remove(itemId)
         val dir = File(cacheBaseDir, itemId.toString())
         if (dir.exists()) {
             dir.deleteRecursively()
@@ -143,6 +199,8 @@ class MediaCacheManager(private val context: Context) {
     }
 
     fun clearCache() {
+        cachedItemIds.clear()
+        cachedThumbnails.clear()
         if (cacheBaseDir.exists()) {
             cacheBaseDir.deleteRecursively()
             cacheBaseDir.mkdirs()

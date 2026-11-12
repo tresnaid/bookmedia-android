@@ -15,13 +15,17 @@ import com.bookmedia.gallery.data.ProfilePreferences
 import com.bookmedia.gallery.data.ServerProfile
 import com.bookmedia.gallery.model.AppVersionInfo
 import com.bookmedia.gallery.model.ArchiveItem
+import com.bookmedia.gallery.model.CreatorGroup
+import com.bookmedia.gallery.model.CreatorSortOption
 import com.bookmedia.gallery.model.MediaFilter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -66,7 +70,9 @@ data class GalleryUiState(
     val favoriteIds: Set<Long> = emptySet(),
     val autoCacheFavorites: Boolean = true,
     val cacheSizeMb: Float = 0f,
-    val updateState: UpdateState = UpdateState.Idle
+    val updateState: UpdateState = UpdateState.Idle,
+    val creatorGroups: List<CreatorGroup> = emptyList(),
+    val creatorSortOption: CreatorSortOption = CreatorSortOption.ALBUMS_DESC
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,6 +104,56 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _autoCacheFavorites = MutableStateFlow(profilePrefs.getAutoCacheFavorites())
     private val _cacheSizeMb = MutableStateFlow(mediaCacheManager.getCacheSizeBytes() / (1024f * 1024f))
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    private val _creatorSortOption = MutableStateFlow(CreatorSortOption.ALBUMS_DESC)
+
+    private val rawCreatorGroupsFlow = combine(
+        _rawItems,
+        _activeProfile
+    ) { raw, activeProf ->
+        val validItems = raw.filter { it.status.equals("archived", ignoreCase = true) }
+        val serverUrl = activeProf.url
+        validItems
+            .filter { it.username.isNotBlank() }
+            .groupBy { it.username.trim().lowercase() }
+            .map { (_, albums) ->
+                val displayName = albums
+                    .map { it.username.trim() }
+                    .firstOrNull { it != it.lowercase() }
+                    ?: albums.first().username.trim()
+                val totalMedia = albums.sumOf { it.totalMediaCount }
+                val latest = albums.maxByOrNull { it.id } ?: albums.first()
+                val thumb = latest.resolveThumbnailUrl(serverUrl, mediaCacheManager).ifBlank {
+                    albums.firstNotNullOfOrNull { alb ->
+                        alb.resolveThumbnailUrl(serverUrl, mediaCacheManager).takeIf { it.isNotBlank() }
+                    }.orEmpty()
+                }
+                CreatorGroup(
+                    name = displayName,
+                    albums = albums.sortedByDescending { it.id },
+                    totalMediaCount = totalMedia,
+                    latestThumbnailUrl = thumb
+                )
+            }
+    }.flowOn(Dispatchers.Default)
+
+    private val creatorGroupsFlow = combine(
+        rawCreatorGroupsFlow,
+        _creatorSortOption
+    ) { grouped, sort ->
+        when (sort) {
+            CreatorSortOption.ALBUMS_DESC -> grouped.sortedByDescending { it.albums.size }
+            CreatorSortOption.MEDIA_DESC -> grouped.sortedByDescending { it.totalMediaCount }
+            CreatorSortOption.NAME_ASC -> grouped.sortedBy { it.name.lowercase() }
+            CreatorSortOption.RECENT -> grouped.sortedByDescending { it.albums.maxOfOrNull { alb -> alb.id } ?: 0L }
+        }
+    }.flowOn(Dispatchers.Default)
+
+    private val creatorBundleFlow = combine(
+        creatorGroupsFlow,
+        _creatorSortOption
+    ) { groups, sort ->
+        CreatorBundle(groups, sort)
+    }
 
     private val filterBundleFlow = combine(
         _rawItems,
@@ -138,9 +194,10 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _favoriteIds,
         _autoCacheFavorites,
         _cacheSizeMb,
-        _updateState
-    ) { favs, autoCache, cacheMb, updateSt ->
-        ExtraState(favs, autoCache, cacheMb, updateSt)
+        _updateState,
+        creatorBundleFlow
+    ) { favs, autoCache, cacheMb, updateSt, creatorBundle ->
+        ExtraState(favs, autoCache, cacheMb, updateSt, creatorBundle.groups, creatorBundle.sortOption)
     }
 
     val uiState: StateFlow<GalleryUiState> = combine(
@@ -209,7 +266,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             favoriteIds = extraState.favoriteIds,
             autoCacheFavorites = extraState.autoCache,
             cacheSizeMb = extraState.cacheSizeMb,
-            updateState = extraState.updateState
+            updateState = extraState.updateState,
+            creatorGroups = extraState.creatorGroups,
+            creatorSortOption = extraState.creatorSortOption
         )
     }.stateIn(
         scope = viewModelScope,
@@ -225,8 +284,15 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     )
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaCacheManager.initializeCacheIndex()
+        }
         loadArchives()
         checkForUpdates(silent = true)
+    }
+
+    fun setCreatorSortOption(option: CreatorSortOption) {
+        _creatorSortOption.value = option
     }
 
     private fun checkAndStartPolling() {
@@ -596,6 +662,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val favoriteIds: Set<Long>,
         val autoCache: Boolean,
         val cacheSizeMb: Float,
-        val updateState: UpdateState
+        val updateState: UpdateState,
+        val creatorGroups: List<CreatorGroup>,
+        val creatorSortOption: CreatorSortOption
+    )
+
+    private data class CreatorBundle(
+        val groups: List<CreatorGroup>,
+        val sortOption: CreatorSortOption
     )
 }

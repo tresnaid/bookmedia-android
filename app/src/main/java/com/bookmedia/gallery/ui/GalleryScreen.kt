@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,9 +33,12 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -42,6 +46,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Warning
@@ -49,6 +55,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
@@ -65,6 +72,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -122,6 +131,8 @@ import com.bookmedia.gallery.data.MediaCacheManager
 import com.bookmedia.gallery.model.AppVersionInfo
 import com.bookmedia.gallery.model.ArchiveItem
 import com.bookmedia.gallery.model.CarouselMediaEntry
+import com.bookmedia.gallery.model.CreatorGroup
+import com.bookmedia.gallery.model.CreatorSortOption
 import com.bookmedia.gallery.model.MediaFilter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -301,15 +312,25 @@ fun UpdateBanner(
 @Composable
 fun GalleryScreen(viewModel: GalleryViewModel) {
     val state by viewModel.uiState.collectAsState()
+    var selectedSection by remember { mutableStateOf(MainGallerySection.MEDIA) }
+    var selectedCreator by remember { mutableStateOf<String?>(null) }
+    var creatorSearchQuery by remember { mutableStateOf("") }
+    var albumSearchQuery by remember { mutableStateOf("") }
+    var showCreatorSearch by remember { mutableStateOf(false) }
+    var showAlbumSearch by remember { mutableStateOf(false) }
+    var albumSortOption by remember { mutableStateOf(AlbumSortOption.NEWEST) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showBrowseOptions by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var activeVerticalReaderItem by remember { mutableStateOf<ArchiveItem?>(null) }
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
 
     val context = LocalContext.current
 
-    BackHandler(enabled = state.activeViewerIndex != null || showSettingsDialog || showBrowseOptions || showSearch) {
-        if (state.activeViewerIndex != null) {
+    BackHandler(enabled = activeVerticalReaderItem != null || state.activeViewerIndex != null || showSettingsDialog || showBrowseOptions || showSearch || showCreatorSearch || showAlbumSearch || selectedCreator != null || selectedSection != MainGallerySection.MEDIA) {
+        if (activeVerticalReaderItem != null) {
+            activeVerticalReaderItem = null
+        } else if (state.activeViewerIndex != null) {
             viewModel.closeViewer()
         } else if (showSettingsDialog) {
             showSettingsDialog = false
@@ -317,6 +338,14 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
             showBrowseOptions = false
         } else if (showSearch) {
             showSearch = false
+        } else if (showAlbumSearch) {
+            showAlbumSearch = false
+        } else if (showCreatorSearch) {
+            showCreatorSearch = false
+        } else if (selectedCreator != null) {
+            selectedCreator = null
+        } else if (selectedSection != MainGallerySection.MEDIA) {
+            selectedSection = MainGallerySection.MEDIA
         }
     }
 
@@ -327,129 +356,250 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
             .padding(top = statusBarPadding.calculateTopPadding())
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            GalleryTopBar(
-                isLocalOnly = state.isLocalOnly,
-                onToggleLocal = viewModel::toggleLocalOnly,
-                isFavoritesOnly = state.selectedMediaFilter == MediaFilter.FAVORITES,
-                onToggleFavoritesOnly = viewModel::toggleFavoritesOnly,
-                sortOrder = state.sortOrder,
-                onToggleSort = viewModel::toggleSortOrder,
-                onOpenSearch = { showSearch = !showSearch },
-                onOpenBrowseOptions = { showBrowseOptions = true }
-            )
-
-            UpdateBanner(
-                updateState = state.updateState,
-                onUpdate = { viewModel.downloadAndInstallUpdate(context) },
-                onDismiss = viewModel::dismissUpdateBanner
-            )
-
-            if (showSearch) {
-                OutlinedTextField(
-                    value = state.searchQuery,
-                    onValueChange = viewModel::setSearchQuery,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    placeholder = { Text("Search author or URL", fontSize = 13.sp, color = TextSecondary) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
-                    trailingIcon = {
-                        IconButton(onClick = {
-                            viewModel.setSearchQuery("")
-                            showSearch = false
-                        }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close search", tint = TextPrimary)
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SurfaceLight,
-                        unfocusedContainerColor = SurfaceLight,
-                        focusedBorderColor = BorderSubtle,
-                        unfocusedBorderColor = BorderSubtle,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+            when (selectedSection) {
+                MainGallerySection.MEDIA -> {
+                    GalleryMediaTopBar(
+                        onSelectSection = { selectedSection = it },
+                        isLocalOnly = state.isLocalOnly,
+                        onToggleLocal = viewModel::toggleLocalOnly,
+                        isFavoritesOnly = state.selectedMediaFilter == MediaFilter.FAVORITES,
+                        onToggleFavoritesOnly = viewModel::toggleFavoritesOnly,
+                        sortOrder = state.sortOrder,
+                        onToggleSort = viewModel::toggleSortOrder,
+                        onOpenSearch = { showSearch = !showSearch },
+                        onOpenBrowseOptions = { showBrowseOptions = true }
                     )
-                )
-            }
 
-            // High Performance Pull-to-Refresh Grid
-            val pullRefreshState = rememberPullToRefreshState()
-            PullToRefreshBox(
-                isRefreshing = state.isLoading && state.items.isNotEmpty(),
-                onRefresh = viewModel::loadArchives,
-                state = pullRefreshState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    when {
-                        state.isLoading && state.items.isEmpty() -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.align(Alignment.Center),
-                                color = Accent
+                    UpdateBanner(
+                        updateState = state.updateState,
+                        onUpdate = { viewModel.downloadAndInstallUpdate(context) },
+                        onDismiss = viewModel::dismissUpdateBanner
+                    )
+                    if (showSearch) {
+                        OutlinedTextField(
+                            value = state.searchQuery,
+                            onValueChange = viewModel::setSearchQuery,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            placeholder = { Text("Search author or URL", fontSize = 13.sp, color = TextSecondary) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    viewModel.setSearchQuery("")
+                                    showSearch = false
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close search", tint = TextPrimary)
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = SurfaceLight,
+                                unfocusedContainerColor = SurfaceLight,
+                                focusedBorderColor = BorderSubtle,
+                                unfocusedBorderColor = BorderSubtle,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
                             )
-                        }
-                        state.errorMessage != null && state.items.isEmpty() -> {
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Unable to connect",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = TextPrimary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = state.errorMessage ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextSecondary
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                TextButton(onClick = viewModel::loadArchives) {
-                                    Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+
+                    // High Performance Pull-to-Refresh Grid
+                    val pullRefreshState = rememberPullToRefreshState()
+                    PullToRefreshBox(
+                        isRefreshing = state.isLoading && state.items.isNotEmpty(),
+                        onRefresh = viewModel::loadArchives,
+                        state = pullRefreshState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            when {
+                                state.isLoading && state.items.isEmpty() -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.align(Alignment.Center),
+                                        color = Accent
+                                    )
+                                }
+                                state.errorMessage != null && state.items.isEmpty() -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Unable to connect",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = TextPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = state.errorMessage ?: "",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = TextSecondary
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        TextButton(onClick = viewModel::loadArchives) {
+                                            Text("Retry Connection", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                                state.filteredItems.isEmpty() -> {
+                                    Text(
+                                        text = if (state.isLocalOnly) "No locally stored media found" else "No matching media found",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextSecondary,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
+                                }
+                                else -> {
+                                    MediaGrid(
+                                        items = state.filteredItems,
+                                        baseUrl = state.serverUrl,
+                                        gridAspect = state.gridAspect,
+                                        cacheManager = viewModel.mediaCacheManager,
+                                        isFavorite = viewModel::isFavorite,
+                                        onItemClick = { index -> viewModel.openViewer(index) },
+                                        onOpenVerticalReader = { item -> activeVerticalReaderItem = item }
+                                    )
+                                }
+                            }
+
+                            if (state.isLoading && state.items.isNotEmpty()) {
+                                Surface(
+                                    modifier = Modifier.align(Alignment.Center),
+                                    shape = CircleShape,
+                                    color = SurfaceLight.copy(alpha = 0.95f),
+                                    shadowElevation = 8.dp
+                                ) {
+                                    Box(modifier = Modifier.padding(14.dp)) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = Accent
+                                        )
+                                    }
                                 }
                             }
                         }
-                        state.filteredItems.isEmpty() -> {
-                            Text(
-                                text = if (state.isLocalOnly) "No locally stored media found" else "No matching media found",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                modifier = Modifier.align(Alignment.Center)
+                    }
+                }
+                MainGallerySection.CREATORS -> {
+                    UpdateBanner(
+                        updateState = state.updateState,
+                        onUpdate = { viewModel.downloadAndInstallUpdate(context) },
+                        onDismiss = viewModel::dismissUpdateBanner
+                    )
+
+                    val sortedCreatorGroups = state.creatorGroups
+
+                    if (selectedCreator == null) {
+                        CreatorsTopBar(
+                            totalCreators = sortedCreatorGroups.size,
+                            onSelectSection = { selectedSection = it },
+                            currentSort = state.creatorSortOption,
+                            onSortSelected = { viewModel.setCreatorSortOption(it) },
+                            onToggleSearch = { showCreatorSearch = !showCreatorSearch }
+                        )
+
+                        if (showCreatorSearch) {
+                            OutlinedTextField(
+                                value = creatorSearchQuery,
+                                onValueChange = { creatorSearchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                placeholder = { Text("Search creator name...", fontSize = 13.sp, color = TextSecondary) },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = {
+                                        creatorSearchQuery = ""
+                                        showCreatorSearch = false
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close search", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = SurfaceLight,
+                                    unfocusedContainerColor = SurfaceLight,
+                                    focusedBorderColor = BorderSubtle,
+                                    unfocusedBorderColor = BorderSubtle,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary
+                                )
                             )
                         }
-                        else -> {
-                            MediaGrid(
-                                items = state.filteredItems,
+
+                        val filteredCreators = remember(sortedCreatorGroups, creatorSearchQuery) {
+                            if (creatorSearchQuery.isBlank()) sortedCreatorGroups
+                            else sortedCreatorGroups.filter { it.name.contains(creatorSearchQuery, ignoreCase = true) }
+                        }
+
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            CreatorsListScreen(
+                                creators = filteredCreators,
+                                onSelectCreator = { selectedCreator = it }
+                            )
+                        }
+                    } else {
+                        val currentCreatorGroup = sortedCreatorGroups.find { it.name.equals(selectedCreator, ignoreCase = true) }
+                        val rawCreatorAlbums = currentCreatorGroup?.albums ?: emptyList()
+
+                        CreatorAlbumsTopBar(
+                            creatorName = selectedCreator ?: "",
+                            albumCount = rawCreatorAlbums.size,
+                            currentSort = albumSortOption,
+                            onSortSelected = { albumSortOption = it },
+                            onToggleSearch = { showAlbumSearch = !showAlbumSearch },
+                            onBack = { selectedCreator = null }
+                        )
+
+                        if (showAlbumSearch) {
+                            OutlinedTextField(
+                                value = albumSearchQuery,
+                                onValueChange = { albumSearchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                placeholder = { Text("Filter albums...", fontSize = 12.sp, color = TextSecondary) },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = {
+                                        albumSearchQuery = ""
+                                        showAlbumSearch = false
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close search", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = SurfaceLight,
+                                    unfocusedContainerColor = SurfaceLight,
+                                    focusedBorderColor = BorderSubtle,
+                                    unfocusedBorderColor = BorderSubtle,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary
+                                )
+                            )
+                        }
+
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            CreatorAlbumsScreen(
+                                albums = rawCreatorAlbums,
+                                searchQuery = albumSearchQuery,
+                                sortOption = albumSortOption,
                                 baseUrl = state.serverUrl,
-                                gridAspect = state.gridAspect,
                                 cacheManager = viewModel.mediaCacheManager,
                                 isFavorite = viewModel::isFavorite,
-                                onItemClick = { index -> viewModel.openViewer(index) }
+                                onToggleFavorite = viewModel::toggleFavorite,
+                                onOpenAlbum = { album -> activeVerticalReaderItem = album }
                             )
-                        }
-                    }
-
-                    if (state.isLoading && state.items.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.Center),
-                            shape = CircleShape,
-                            color = SurfaceLight.copy(alpha = 0.95f),
-                            shadowElevation = 8.dp
-                        ) {
-                            Box(modifier = Modifier.padding(14.dp)) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(28.dp),
-                                    strokeWidth = 2.5.dp,
-                                    color = Accent
-                                )
-                            }
                         }
                     }
                 }
@@ -467,7 +617,24 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                 onToggleFavorite = viewModel::toggleFavorite,
                 onRequestLocalDownload = viewModel::requestLocalDownload,
                 onDeleteLocalMedia = viewModel::deleteLocalMedia,
+                onOpenVerticalReader = { item -> activeVerticalReaderItem = item },
+                onSelectCreator = { creator ->
+                    selectedSection = MainGallerySection.CREATORS
+                    selectedCreator = creator
+                },
                 onClose = viewModel::closeViewer
+            )
+        }
+
+        // Fullscreen Vertical Album Reader (Manhwa mode)
+        activeVerticalReaderItem?.let { readerItem ->
+            VerticalAlbumReaderScreen(
+                item = readerItem,
+                baseUrl = state.serverUrl,
+                cacheManager = viewModel.mediaCacheManager,
+                isFavorite = viewModel.isFavorite(readerItem.id),
+                onToggleFavorite = { viewModel.toggleFavorite(readerItem.id) },
+                onBack = { activeVerticalReaderItem = null }
             )
         }
 
@@ -521,7 +688,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
 }
 
 @Composable
-fun GalleryTopBar(
+fun GalleryMediaTopBar(
+    onSelectSection: (MainGallerySection) -> Unit,
     isLocalOnly: Boolean,
     onToggleLocal: () -> Unit,
     isFavoritesOnly: Boolean,
@@ -540,50 +708,83 @@ fun GalleryTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = "archie",
-            fontSize = 22.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            IconButton(onClick = onOpenSearch, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.Search, contentDescription = "Search media", tint = TextPrimary)
+        // Pill Switcher Tabs: Media | Creators
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(SurfaceElevated)
+                .padding(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Accent,
+                modifier = Modifier.clip(RoundedCornerShape(16.dp))
+            ) {
+                Text(
+                    text = "Media",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
             }
-            IconButton(onClick = onOpenBrowseOptions, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.Tune, contentDescription = "Browse options", tint = TextPrimary)
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onSelectSection(MainGallerySection.CREATORS) }
+            ) {
+                Text(
+                    text = "Creators",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
             }
-            IconButton(onClick = onToggleSort, modifier = Modifier.size(44.dp)) {
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onOpenSearch, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Search, contentDescription = "Search media", tint = TextPrimary, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onOpenBrowseOptions, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Tune, contentDescription = "Browse options", tint = TextPrimary, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = onToggleSort, modifier = Modifier.size(40.dp)) {
                 Icon(
                     Icons.Default.SwapVert,
                     contentDescription = "Sort: ${sortOrder.label}",
-                    tint = if (sortOrder == SortOrder.OLDEST) Accent else TextPrimary
+                    tint = if (sortOrder == SortOrder.OLDEST) Accent else TextPrimary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             IconButton(
                 onClick = onToggleFavoritesOnly,
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(if (isFavoritesOnly) Color(0xFFF3E2E2) else Color.Transparent, RoundedCornerShape(10.dp))
+                    .size(40.dp)
+                    .background(if (isFavoritesOnly) Color(0xFFF3E2E2) else Color.Transparent, RoundedCornerShape(8.dp))
             ) {
                 Icon(
                     imageVector = if (isFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Favorites",
-                    tint = if (isFavoritesOnly) Accent else TextPrimary
+                    tint = if (isFavoritesOnly) Accent else TextPrimary,
+                    modifier = Modifier.size(19.dp)
                 )
             }
             IconButton(
                 onClick = onToggleLocal,
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(if (isLocalOnly) Color(0xFFD8EADF) else Color.Transparent, RoundedCornerShape(10.dp))
+                    .size(40.dp)
+                    .background(if (isLocalOnly) Color(0xFFD8EADF) else Color.Transparent, RoundedCornerShape(8.dp))
             ) {
                 Icon(
                     Icons.Default.DownloadDone,
                     contentDescription = if (isLocalOnly) "Showing media saved to the server" else "Show media saved to the server",
-                    tint = if (isLocalOnly) Color(0xFF275A3C) else TextPrimary
+                    tint = if (isLocalOnly) Color(0xFF275A3C) else TextPrimary,
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }
@@ -875,13 +1076,95 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 )
 
 @Composable
+fun MediaBreakdownBadge(
+    videoCount: Int,
+    photoCount: Int,
+    fallbackTotal: Int = 0,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = Color(0xFF1E1715).copy(alpha = 0.88f),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            var hasElement = false
+            if (videoCount > 0) {
+                hasElement = true
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Videos",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "$videoCount",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (photoCount > 0) {
+                hasElement = true
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = "Photos",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "$photoCount",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (!hasElement && fallbackTotal > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Collections,
+                        contentDescription = "Media",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "$fallbackTotal",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun MediaGrid(
     items: List<ArchiveItem>,
     baseUrl: String,
     gridAspect: GridAspect,
     cacheManager: MediaCacheManager,
     isFavorite: (Long) -> Boolean,
-    onItemClick: (Int) -> Unit
+    onItemClick: (Int) -> Unit,
+    onOpenVerticalReader: (ArchiveItem) -> Unit = {}
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -897,7 +1180,8 @@ fun MediaGrid(
                 aspectRatio = gridAspect.ratio,
                 cacheManager = cacheManager,
                 isFavorite = isFavorite(item.id),
-                onClick = { onItemClick(index) }
+                onClick = { onItemClick(index) },
+                onOpenVerticalReader = onOpenVerticalReader
             )
         }
     }
@@ -910,7 +1194,8 @@ fun MediaGridThumbnail(
     aspectRatio: Float,
     cacheManager: MediaCacheManager,
     isFavorite: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenVerticalReader: (ArchiveItem) -> Unit = {}
 ) {
     val context = LocalContext.current
     val imageSource = remember(item.id, item.thumbnailUrl, item.localUrl, baseUrl) {
@@ -930,7 +1215,7 @@ fun MediaGridThumbnail(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageSource)
-                    .crossfade(true)
+                    .crossfade(false)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
@@ -1019,30 +1304,17 @@ fun MediaGridThumbnail(
             }
         }
 
-        if (item.isCarousel) {
-            Box(
+        if (item.isCarousel || item.totalMediaCount > 1) {
+            MediaBreakdownBadge(
+                videoCount = item.videoCount,
+                photoCount = item.photoCount,
+                fallbackTotal = item.totalMediaCount,
                 modifier = Modifier
                     .align(if (isFavorite) Alignment.BottomStart else Alignment.TopStart)
                     .padding(4.dp)
-                    .background(Color(0xFF2A201C).copy(alpha = 0.78f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Collections,
-                        contentDescription = "Carousel",
-                        tint = Color.White,
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = "${item.totalMediaCount}",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onOpenVerticalReader(item) }
+            )
         }
     }
 }
@@ -1058,6 +1330,8 @@ fun MediaViewerOverlay(
     onToggleFavorite: (Long) -> Unit,
     onRequestLocalDownload: (Long) -> Unit,
     onDeleteLocalMedia: (Long) -> Unit,
+    onOpenVerticalReader: (ArchiveItem) -> Unit = {},
+    onSelectCreator: (String) -> Unit = {},
     onClose: () -> Unit
 ) {
     val postPagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
@@ -1129,6 +1403,57 @@ fun MediaViewerOverlay(
             )
         }
 
+        // Always-visible subtle status indicator at top right (streaming vs server stored vs device cache vs downloading)
+        if (currentPost != null) {
+            val isCachedLocally = cacheManager.isItemCached(currentPost.id)
+            val isStoredOnServer = currentPost.hasLocalMedia
+            val isDownloading = currentPost.downloadingLocal
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = when {
+                    isCachedLocally || isStoredOnServer -> Color(0xFF275A3C).copy(alpha = if (showControls) 0.95f else 0.7f)
+                    isDownloading -> Accent.copy(alpha = if (showControls) 0.95f else 0.8f)
+                    else -> Color.Black.copy(alpha = if (showControls) 0.75f else 0.5f)
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = systemBarsPadding.calculateTopPadding() + (if (showControls) 64.dp else 12.dp),
+                        end = 12.dp
+                    )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    when {
+                        isDownloading -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(10.dp),
+                                strokeWidth = 1.5.dp,
+                                color = Color.White
+                            )
+                            Text("Downloading", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        isCachedLocally -> {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                            Text("Device", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        isStoredOnServer -> {
+                            Icon(Icons.Default.DownloadDone, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                            Text("Server", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        else -> {
+                            Icon(Icons.Default.Cloud, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(12.dp))
+                            Text("Streaming", color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, fontWeight = FontWeight.Normal)
+                        }
+                    }
+                }
+            }
+        }
+
         // Overlay Chrome
         AnimatedVisibility(
             visible = showControls,
@@ -1164,6 +1489,18 @@ fun MediaViewerOverlay(
                     )
                     currentPost?.let { post ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (post.isCarousel) {
+                                IconButton(
+                                    onClick = { onOpenVerticalReader(post) },
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                        contentDescription = "Read album vertically",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = { onToggleFavorite(post.id) },
                                 modifier = Modifier.size(44.dp)
@@ -1218,6 +1555,34 @@ fun MediaViewerOverlay(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
+                                    if (item.username.isNotBlank() && item.username != "pc_upload") {
+                                        val author = item.username.trim()
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Accent.copy(alpha = 0.22f),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable {
+                                                    onClose()
+                                                    onSelectCreator(author)
+                                                }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (author.startsWith("@")) author else "@$author",
+                                                    color = Accent,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(5.dp))
+                                    }
+
                                     Text(
                                         text = item.effectiveTitle,
                                         color = Color.White,
@@ -1515,7 +1880,8 @@ fun VideoPlayerPage(
     videoUrl: String,
     thumbnailUrl: String = "",
     isActive: Boolean,
-    onPlayerReady: (ExoPlayer?) -> Unit = {}
+    onPlayerReady: (ExoPlayer?) -> Unit = {},
+    onVideoAspectRatio: (Float) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1594,6 +1960,12 @@ fun VideoPlayerPage(
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onRenderedFirstFrame() {
                 isFirstFrameRendered = true
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    onVideoAspectRatio(videoSize.width.toFloat() / videoSize.height.toFloat())
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -2113,3 +2485,652 @@ fun ServerProfilesDialog(
         }
     }
 }
+
+/**
+ * Minimalist vertical continuous media stream for albums (Manhwa / Webtoon reader style).
+ * Displays all album media stacked vertically with edge-to-edge width and 0dp spacing.
+ * Chrome is strictly minimal: only a back button and album title.
+ */
+@Composable
+fun VerticalAlbumReaderScreen(
+    item: ArchiveItem,
+    baseUrl: String,
+    cacheManager: MediaCacheManager,
+    isFavorite: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val systemBarsPadding = WindowInsets.systemBars.asPaddingValues()
+    val mediaList = remember(item.id, baseUrl) {
+        item.resolveMediaList(baseUrl, cacheManager)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF120E0D))
+    ) {
+        if (mediaList.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = systemBarsPadding.calculateTopPadding() + 60.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No media files available in this album",
+                    color = Color(0xFFA89F91),
+                    fontSize = 14.sp
+                )
+            }
+        } else {
+            // Continuous full-bleed vertical media stream
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = systemBarsPadding.calculateTopPadding() + 52.dp,
+                    bottom = systemBarsPadding.calculateBottomPadding() + 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                items(
+                    items = mediaList,
+                    key = { entry -> "${item.id}_${entry.index}_${entry.filename}" }
+                ) { entry ->
+                    if (entry.isVideo) {
+                        var videoAspectRatio by remember(entry.url) { mutableStateOf<Float?>(null) }
+                        val aspect = videoAspectRatio ?: (9f / 16f)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(aspect)
+                                .background(Color.Black),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            VideoPlayerPage(
+                                videoUrl = entry.url,
+                                thumbnailUrl = entry.thumbnailUrl,
+                                isActive = true,
+                                onVideoAspectRatio = { ratio -> videoAspectRatio = ratio }
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 240.dp)
+                                .background(Color(0xFF161211)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            var isFullLoaded by remember { mutableStateOf(false) }
+
+                            // 1. Show thumbnail preview immediately so screen is NEVER black
+                            if (entry.thumbnailUrl.isNotBlank() && !isFullLoaded) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(entry.thumbnailUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .wrapContentHeight()
+                                )
+                            }
+
+                            // 2. High-res image on top
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(entry.url.ifBlank { entry.thumbnailUrl })
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.FillWidth,
+                                onSuccess = { isFullLoaded = true },
+                                onError = { isFullLoaded = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .wrapContentHeight()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Minimalist Top Bar: Back Button, Album Title, and Favorite Button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(Color(0xFF1E1715).copy(alpha = 0.95f))
+                .padding(top = systemBarsPadding.calculateTopPadding())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = item.effectiveTitle,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(
+                onClick = onToggleFavorite,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Favorite",
+                    tint = if (isFavorite) Color(0xFFE25C6A) else Color.White
+                )
+            }
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// Creators & Authors Composables
+// --------------------------------------------------------------------------
+
+enum class MainGallerySection(val label: String) {
+    MEDIA("All Media"),
+    CREATORS("Creators")
+}
+
+enum class AlbumSortOption(val label: String) {
+    NEWEST("Newest Archive"),
+    OLDEST("Oldest Archive"),
+    MEDIA_COUNT("Most Media"),
+    TITLE("Title (A–Z)")
+}
+
+@Composable
+fun CreatorsTopBar(
+    totalCreators: Int,
+    onSelectSection: (MainGallerySection) -> Unit,
+    currentSort: CreatorSortOption,
+    onSortSelected: (CreatorSortOption) -> Unit,
+    onToggleSearch: () -> Unit
+) {
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .background(BackgroundLight)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Pill Switcher Tabs: Media | Creators
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(SurfaceElevated)
+                    .padding(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Transparent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onSelectSection(MainGallerySection.MEDIA) }
+                ) {
+                    Text(
+                        text = "Media",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Accent,
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp))
+                ) {
+                    Text(
+                        text = "Creators",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = SurfaceElevated
+            ) {
+                Text(
+                    text = "$totalCreators",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            IconButton(onClick = onToggleSearch, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Search, contentDescription = "Search creators", tint = TextPrimary, modifier = Modifier.size(20.dp))
+            }
+
+            Box {
+                IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.SwapVert,
+                        contentDescription = "Sort creators",
+                        tint = Accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showSortMenu,
+                    onDismissRequest = { showSortMenu = false }
+                ) {
+                    CreatorSortOption.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = option.label,
+                                    fontWeight = if (option == currentSort) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (option == currentSort) Accent else TextPrimary
+                                )
+                            },
+                            onClick = {
+                                onSortSelected(option)
+                                showSortMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorAlbumsTopBar(
+    creatorName: String,
+    albumCount: Int,
+    currentSort: AlbumSortOption,
+    onSortSelected: (AlbumSortOption) -> Unit,
+    onToggleSearch: () -> Unit,
+    onBack: () -> Unit
+) {
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .background(BackgroundLight)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back to Creators",
+                    tint = TextPrimary
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                val displayName = if (creatorName.startsWith("@")) creatorName else "@$creatorName"
+                Text(
+                    text = displayName,
+                    fontSize = 16.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$albumCount ${if (albumCount == 1) "item" else "items"}",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            IconButton(onClick = onToggleSearch, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Search, contentDescription = "Search albums", tint = TextPrimary, modifier = Modifier.size(20.dp))
+            }
+
+            Box {
+                IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.SwapVert,
+                        contentDescription = "Sort albums",
+                        tint = Accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showSortMenu,
+                    onDismissRequest = { showSortMenu = false }
+                ) {
+                    AlbumSortOption.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = option.label,
+                                    fontWeight = if (option == currentSort) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (option == currentSort) Accent else TextPrimary
+                                )
+                            },
+                            onClick = {
+                                onSortSelected(option)
+                                showSortMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorsListScreen(
+    creators: List<CreatorGroup>,
+    onSelectCreator: (String) -> Unit
+) {
+    if (creators.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No creators found",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+        }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(creators, key = { it.name }) { creator ->
+                CreatorCard(
+                    creator = creator,
+                    onClick = { onSelectCreator(creator.name) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorCard(
+    creator: CreatorGroup,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceLight,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .background(SurfaceElevated),
+                contentAlignment = Alignment.Center
+            ) {
+                val initial = creator.name.trimStart('@').firstOrNull()?.uppercaseChar()?.toString() ?: "C"
+                Text(
+                    text = initial,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Accent,
+                    fontFamily = FontFamily.Serif
+                )
+                if (creator.latestThumbnailUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(creator.latestThumbnailUrl)
+                            .crossfade(false)
+                            .build(),
+                        contentDescription = creator.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+            ) {
+                val displayName = if (creator.name.startsWith("@")) creator.name else "@${creator.name}"
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${creator.albums.size} ${if (creator.albums.size == 1) "item" else "items"} • ${creator.totalMediaCount} media",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorAlbumsScreen(
+    albums: List<ArchiveItem>,
+    searchQuery: String,
+    sortOption: AlbumSortOption,
+    baseUrl: String,
+    cacheManager: MediaCacheManager,
+    isFavorite: (Long) -> Boolean,
+    onToggleFavorite: (Long) -> Unit,
+    onOpenAlbum: (ArchiveItem) -> Unit
+) {
+    val sortedAlbums = remember(albums, sortOption) {
+        when (sortOption) {
+            AlbumSortOption.NEWEST -> albums.sortedByDescending { it.id }
+            AlbumSortOption.OLDEST -> albums.sortedBy { it.id }
+            AlbumSortOption.MEDIA_COUNT -> albums.sortedByDescending { it.totalMediaCount }
+            AlbumSortOption.TITLE -> albums.sortedBy { it.effectiveTitle.lowercase() }
+        }
+    }
+    val filteredAlbums = remember(sortedAlbums, searchQuery) {
+        if (searchQuery.isBlank()) sortedAlbums
+        else sortedAlbums.filter { it.text.contains(searchQuery, ignoreCase = true) || it.id.toString().contains(searchQuery) }
+    }
+
+    if (filteredAlbums.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No albums found",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+        }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(filteredAlbums, key = { it.id }) { album ->
+                CreatorAlbumItemCard(
+                    album = album,
+                    baseUrl = baseUrl,
+                    cacheManager = cacheManager,
+                    isFavorite = isFavorite(album.id),
+                    onToggleFavorite = { onToggleFavorite(album.id) },
+                    onClick = { onOpenAlbum(album) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorAlbumItemCard(
+    album: ArchiveItem,
+    baseUrl: String,
+    cacheManager: MediaCacheManager,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val thumbUrl = remember(album.id, baseUrl) {
+        album.resolveThumbnailUrl(baseUrl, cacheManager)
+    }
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = SurfaceLight,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(4f / 5f)
+                    .background(Color(0xFF141110)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Collections,
+                    contentDescription = null,
+                    tint = BorderSubtle,
+                    modifier = Modifier.size(32.dp)
+                )
+                if (thumbUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(thumbUrl)
+                            .crossfade(false)
+                            .build(),
+                        contentDescription = album.text,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Favorite heart button on top-start
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .size(32.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (isFavorite) Accent else Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                // Media breakdown badge on top-end
+                MediaBreakdownBadge(
+                    videoCount = album.videoCount,
+                    photoCount = album.photoCount,
+                    fallbackTotal = album.totalMediaCount,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = album.text.ifBlank { "Album #${album.id}" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = TextPrimary,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+    }
+}
+

@@ -45,48 +45,63 @@ data class ArchiveItem(
     @SerialName("created_at") val createdAt: String = "",
     val transcoded: Boolean = false
 ) {
-    val validLocalFiles: List<LocalMediaFile>
-        get() = localFiles.filter { it.filename != "thumb.jpg" && !it.filename.startsWith("thumb_") && it.size > 0L }
+    val validLocalFiles: List<LocalMediaFile> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        if (localFiles.isEmpty()) emptyList()
+        else localFiles.filter { it.filename != "thumb.jpg" && !it.filename.startsWith("thumb_") && it.size > 0L }
+    }
 
-    val hasLocalMedia: Boolean
-        get() = storedLocally || validLocalFiles.isNotEmpty() || (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg") && localFiles.none { it.size == 0L })
+    val hasLocalMedia: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        storedLocally || validLocalFiles.isNotEmpty() || (localUrl.isNotBlank() && !localUrl.endsWith("thumb.jpg") && localFiles.none { it.size == 0L })
+    }
 
-    val totalMediaCount: Int
-        get() = when {
+    val totalMediaCount: Int by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        when {
             mediaItems.isNotEmpty() -> mediaItems.size
             validLocalFiles.isNotEmpty() -> validLocalFiles.size
             mediaCount > 1 -> mediaCount
             else -> 1
         }
+    }
 
-    val isCarousel: Boolean
-        get() = totalMediaCount > 1
+    val isDirectVideo: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        (hasLocalMedia && (isVideoFilename(localUrl) || validLocalFiles.any { it.type == "video" })) ||
+        isVideoFilename(submittedUrl) ||
+        isVideoFilename(canonicalUrl)
+    }
 
-    val isDirectVideo: Boolean
-        get() = (hasLocalMedia && (localUrl.endsWith(".mp4", ignoreCase = true) || localUrl.endsWith(".mov", ignoreCase = true) || localUrl.endsWith(".webm", ignoreCase = true) || validLocalFiles.any { it.type == "video" })) ||
-                submittedUrl.contains(".mp4", ignoreCase = true) ||
-                submittedUrl.contains(".mov", ignoreCase = true) ||
-                canonicalUrl.contains(".mp4", ignoreCase = true) ||
-                canonicalUrl.contains(".mov", ignoreCase = true)
+    val isVideo: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        platform.lowercase() in VIDEO_PLATFORMS ||
+        isDirectVideo ||
+        mediaItems.any {
+            it.type.equals("video", ignoreCase = true) || isVideoFilename(it.filename)
+        } ||
+        validLocalFiles.any {
+            it.type.equals("video", ignoreCase = true) || isVideoFilename(it.filename)
+        } ||
+        (thumbnailUrl.isNotEmpty() && !IMAGE_EXT_REGEX.matches(submittedUrl))
+    }
 
-    val isVideo: Boolean
-        get() = platform.lowercase() in listOf("tiktok", "douyin") ||
-                isDirectVideo ||
-                mediaItems.any {
-                    it.type.equals("video", ignoreCase = true) ||
-                    it.filename.endsWith(".mp4", ignoreCase = true) ||
-                    it.filename.endsWith(".mov", ignoreCase = true) ||
-                    it.filename.endsWith(".webm", ignoreCase = true) ||
-                    it.filename.endsWith(".mkv", ignoreCase = true)
-                } ||
-                validLocalFiles.any {
-                    it.type.equals("video", ignoreCase = true) ||
-                    it.filename.endsWith(".mp4", ignoreCase = true) ||
-                    it.filename.endsWith(".mov", ignoreCase = true) ||
-                    it.filename.endsWith(".webm", ignoreCase = true)
-                } ||
-                (thumbnailUrl.isNotEmpty() &&
-                 !submittedUrl.matches(Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)))
+    val videoCount: Int by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        if (mediaItems.isNotEmpty()) {
+            mediaItems.count { mi ->
+                mi.type.equals("video", ignoreCase = true) || isVideoFilename(mi.filename)
+            }
+        } else if (validLocalFiles.isNotEmpty()) {
+            validLocalFiles.count { lf ->
+                lf.type.equals("video", ignoreCase = true) || isVideoFilename(lf.filename)
+            }
+        } else {
+            if (isVideo) 1 else 0
+        }
+    }
+
+    val photoCount: Int by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        (totalMediaCount - videoCount).coerceAtLeast(0)
+    }
+
+    val isCarousel: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        totalMediaCount > 1
+    }
 
     val effectiveTitle: String
         get() = when {
@@ -104,22 +119,30 @@ data class ArchiveItem(
                 it.type.equals("photo", ignoreCase = true) || isImageUrl(it.url) || isImageUrl(it.filename)
             }
 
-            if (thumbnailUrl.isNotBlank()) {
+            // Prefer local server endpoint /media/$id/thumb.jpg first, as it's permanently reliable
+            if (thumbnailUrl.isNotBlank() && thumbnailUrl.startsWith("/media/")) {
                 add(thumbnailUrl)
             }
             add("/media/$id/thumb.jpg")
 
             localPhotos.forEach { add(it.url) }
             mediaItems.forEach { mi ->
-                if (mi.thumbnailUrl.isNotBlank()) add(mi.thumbnailUrl)
+                if (mi.thumbnailUrl.isNotBlank() && mi.thumbnailUrl.startsWith("/media/")) add(mi.thumbnailUrl)
                 if (mi.type.equals("photo", ignoreCase = true) || isImageUrl(mi.filename)) {
                     add("/media/$id/${mi.filename}")
                 }
             }
 
+            if (thumbnailUrl.isNotBlank()) {
+                add(thumbnailUrl)
+            }
+            mediaItems.forEach { mi ->
+                if (mi.thumbnailUrl.isNotBlank()) add(mi.thumbnailUrl)
+            }
+
             if (hasLocalMedia) add(localUrl)
-            add(submittedUrl)
-            add(canonicalUrl)
+            if (isImageUrl(submittedUrl)) add(submittedUrl)
+            if (isImageUrl(canonicalUrl)) add(canonicalUrl)
         }
 
         return candidates
@@ -131,7 +154,7 @@ data class ArchiveItem(
     }
 
     fun resolveThumbnailUrl(baseUrl: String, cacheManager: MediaCacheManager? = null): String {
-        if (cacheManager != null) {
+        if (cacheManager != null && cacheManager.isItemCached(id)) {
             val cachedThumb = cacheManager.getCachedThumbnailFile(id)
             if (cachedThumb != null) {
                 return "file://${cachedThumb.absolutePath}"
@@ -141,6 +164,16 @@ data class ArchiveItem(
     }
 
     companion object {
+        private val VIDEO_PLATFORMS = setOf("tiktok", "douyin")
+        private val IMAGE_EXT_REGEX = Regex(".*\\.(jpg|jpeg|png|webp|gif)(\\?.*)?$", RegexOption.IGNORE_CASE)
+
+        fun isVideoFilename(value: String): Boolean {
+            if (value.isBlank()) return false
+            val lower = value.substringBefore('?').substringBefore('#').lowercase()
+            return lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".webm") ||
+                   lower.endsWith(".mkv") || lower.endsWith(".m4v")
+        }
+
         fun encodeUrlPath(raw: String): String {
             if (raw.isBlank() || raw.startsWith("file://", ignoreCase = true)) return raw
             val schemeEnd = raw.indexOf("://")
@@ -192,10 +225,11 @@ data class ArchiveItem(
     }
 
     private fun isImageUrl(value: String): Boolean {
-        return value.substringBefore('?').substringBefore('#').lowercase().let { path ->
-            listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".heif")
-                .any(path::endsWith)
-        }
+        if (value.isBlank()) return false
+        val path = value.substringBefore('?').substringBefore('#').lowercase()
+        return path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") ||
+               path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".avif") ||
+               path.endsWith(".heic") || path.endsWith(".heif")
     }
 
     fun resolvePlayableMediaUrl(baseUrl: String, cacheManager: MediaCacheManager? = null): String {
@@ -289,10 +323,12 @@ data class ArchiveItem(
 
         // Single fallback item
         val singleUrl = resolvePlayableMediaUrl(baseUrl, cacheManager)
-        val finalUrl = if (isVideo && singleUrl.isBlank()) {
-            resolveThumbnailUrl(baseUrl, cacheManager).ifBlank { submittedUrl.ifBlank { canonicalUrl } }
-        } else {
-            singleUrl.ifBlank { submittedUrl.ifBlank { canonicalUrl } }
+        val defaultImgThumb = resolveThumbnailUrl(baseUrl, cacheManager).ifBlank { "$trimmedBase/media/$id/thumb.jpg" }
+        val finalUrl = when {
+            singleUrl.isNotBlank() -> singleUrl
+            isImageUrl(submittedUrl) -> resolveUrl(baseUrl, submittedUrl)
+            isImageUrl(canonicalUrl) -> resolveUrl(baseUrl, canonicalUrl)
+            else -> defaultImgThumb
         }
         return listOf(
             CarouselMediaEntry(
@@ -300,7 +336,7 @@ data class ArchiveItem(
                 url = finalUrl,
                 isVideo = isVideo && singleUrl.isNotBlank(),
                 filename = "",
-                thumbnailUrl = resolveThumbnailUrl(baseUrl, cacheManager)
+                thumbnailUrl = defaultImgThumb
             )
         )
     }
