@@ -2556,44 +2556,79 @@ fun VerticalAlbumReaderScreen(
                             )
                         }
                     } else {
-                        Box(
-                            modifier = Modifier
+                        var imageAspectRatio by remember(entry.url, entry.thumbnailUrl) { mutableStateOf<Float?>(null) }
+                        var isFullLoaded by remember(entry.url) { mutableStateOf(false) }
+                        var isFullFailed by remember(entry.url) { mutableStateOf(false) }
+
+                        val containerModifier = if (imageAspectRatio != null) {
+                            Modifier
                                 .fillMaxWidth()
-                                .defaultMinSize(minHeight = 240.dp)
-                                .background(Color(0xFF161211)),
+                                .aspectRatio(imageAspectRatio!!)
+                                .background(Color(0xFF161211))
+                        } else {
+                            Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                                .background(Color(0xFF161211))
+                        }
+
+                        Box(
+                            modifier = containerModifier,
                             contentAlignment = Alignment.Center
                         ) {
-                            var isFullLoaded by remember { mutableStateOf(false) }
-
-                            // 1. Show thumbnail preview immediately so screen is NEVER black
-                            if (entry.thumbnailUrl.isNotBlank() && !isFullLoaded) {
+                            // 1. Show thumbnail preview immediately so screen is NEVER black or empty
+                            if (entry.thumbnailUrl.isNotBlank() && (!isFullLoaded || isFullFailed)) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(entry.thumbnailUrl)
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = null,
-                                    contentScale = ContentScale.FillWidth,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .wrapContentHeight()
+                                    contentScale = ContentScale.Fit,
+                                    onSuccess = { state ->
+                                        if (imageAspectRatio == null) {
+                                            val d = state.result.drawable
+                                            if (d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
+                                                imageAspectRatio = d.intrinsicWidth.toFloat() / d.intrinsicHeight.toFloat()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize()
                                 )
                             }
 
                             // 2. High-res image on top
+                            val highResUrl = entry.url.ifBlank { entry.thumbnailUrl }
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
-                                    .data(entry.url.ifBlank { entry.thumbnailUrl })
+                                    .data(highResUrl)
                                     .crossfade(true)
                                     .build(),
                                 contentDescription = null,
-                                contentScale = ContentScale.FillWidth,
-                                onSuccess = { isFullLoaded = true },
-                                onError = { isFullLoaded = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .wrapContentHeight()
+                                contentScale = ContentScale.Fit,
+                                onSuccess = { state ->
+                                    val d = state.result.drawable
+                                    if (d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
+                                        imageAspectRatio = d.intrinsicWidth.toFloat() / d.intrinsicHeight.toFloat()
+                                    }
+                                    isFullLoaded = true
+                                    isFullFailed = false
+                                },
+                                onError = {
+                                    isFullLoaded = true
+                                    isFullFailed = true
+                                },
+                                modifier = Modifier.fillMaxSize()
                             )
+
+                            // 3. Subtle loading spinner when no aspect ratio is known yet
+                            if (imageAspectRatio == null && !isFullFailed) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFFD97706).copy(alpha = 0.5f),
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
                 }

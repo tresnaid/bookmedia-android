@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Installing OpenJDK 17 & Android Command Line Tools ==="
-apt-get update -qq
-apt-get install -y -qq openjdk-21-jdk wget unzip
+if ! command -v wget >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
+    echo "=== Installing wget & unzip ==="
+    apt-get update -qq && apt-get install -y -qq wget unzip
+fi
 
 export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -66,6 +67,8 @@ if [ -f "$APK_OUT" ]; then
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0318.apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0319.apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0320.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0325.apk 2>/dev/null || true
+    cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/archie-v0326.apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/0/bookmedia-gallery.apk 2>/dev/null || true
     mkdir -p /home/tresnaid/project/bookmedia/data/media/apk 2>/dev/null || true
     cp "$APK_OUT" /home/tresnaid/project/bookmedia/data/media/apk/archie.apk 2>/dev/null || true
