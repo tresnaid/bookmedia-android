@@ -99,7 +99,7 @@ class MediaCacheManager(private val context: Context) {
         return false
     }
 
-    suspend fun cacheItemMedia(baseUrl: String, item: ArchiveItem): Boolean = withContext(Dispatchers.IO) {
+    suspend fun cacheItemMedia(baseUrl: String, item: ArchiveItem, authToken: String = ""): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val targetDir = getItemDir(item.id)
             val trimmedBase = baseUrl.trimEnd('/')
@@ -113,7 +113,7 @@ class MediaCacheManager(private val context: Context) {
                 }
                 for (u in candidateThumbUrls) {
                     val fullUrl = if (u.startsWith("http://") || u.startsWith("https://")) u else "$trimmedBase/${u.trimStart('/')}"
-                    if (downloadToFile(fullUrl, thumbTarget)) break
+                    if (downloadToFile(fullUrl, thumbTarget, authToken)) break
                 }
             }
 
@@ -143,7 +143,7 @@ class MediaCacheManager(private val context: Context) {
                 } else {
                     "$trimmedBase/${urlPath.trimStart('/')}"
                 }
-                downloadToFile(fullUrl, fileTarget)
+                downloadToFile(fullUrl, fileTarget, authToken)
             }
             cachedItemIds.add(item.id)
             getCachedThumbnailFile(item.id)
@@ -151,7 +151,7 @@ class MediaCacheManager(private val context: Context) {
         }.getOrDefault(false)
     }
 
-    private fun downloadToFile(urlString: String, destinationFile: File): Boolean {
+    private fun downloadToFile(urlString: String, destinationFile: File, authToken: String = ""): Boolean {
         return try {
             val tempFile = File(destinationFile.parentFile, "${destinationFile.name}.tmp")
             val safeUrl = ArchiveItem.encodeUrlPath(urlString)
@@ -160,6 +160,10 @@ class MediaCacheManager(private val context: Context) {
             conn.connectTimeout = 10000
             conn.readTimeout = 25000
             conn.instanceFollowRedirects = true
+            val token = authToken.trim()
+            if (token.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $token")
+            }
 
             if (conn.responseCode in 200..299) {
                 conn.inputStream.use { input ->

@@ -10,7 +10,8 @@ import kotlinx.serialization.json.Json
 data class ServerProfile(
     val id: String,
     val name: String,
-    val url: String
+    val url: String,
+    val token: String = ""
 )
 
 class ProfilePreferences(context: Context) {

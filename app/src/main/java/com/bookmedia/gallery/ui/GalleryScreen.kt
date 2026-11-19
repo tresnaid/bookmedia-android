@@ -120,8 +120,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
@@ -646,8 +648,8 @@ fun GalleryScreen(viewModel: GalleryViewModel) {
                     viewModel.switchProfile(it.id)
                     showSettingsDialog = false
                 },
-                onAddOrUpdateProfile = { name, url, id ->
-                    viewModel.addOrUpdateProfile(name, url, id)
+                onAddOrUpdateProfile = { name, url, token, id ->
+                    viewModel.addOrUpdateProfile(name, url, token, id)
                 },
                 onDeleteProfile = {
                     viewModel.deleteProfile(it.id)
@@ -1946,12 +1948,25 @@ fun VideoPlayerPage(
     }
 
     val exoPlayer = remember(videoUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            setSeekParameters(SeekParameters.CLOSEST_SYNC)
-            setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
-            prepare()
-            playWhenReady = true
+        val token = viewModel.getAuthToken().trim()
+        val dataSourceFactory = if (token.isNotBlank()) {
+            DefaultHttpDataSource.Factory()
+                .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token"))
+                .setAllowCrossProtocolRedirects(true)
+        } else {
+            DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
         }
+        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build().apply {
+                setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                setMediaItem(MediaItem.fromUri(Uri.parse(videoUrl)))
+                prepare()
+                playWhenReady = true
+            }
     }
 
     var isFirstFrameRendered by remember(videoUrl) { mutableStateOf(false) }
@@ -2127,13 +2142,14 @@ fun ServerProfilesScreen(
     profiles: List<com.bookmedia.gallery.data.ServerProfile>,
     activeProfile: com.bookmedia.gallery.data.ServerProfile?,
     onSelectProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
-    onAddOrUpdateProfile: (name: String, url: String, id: String?) -> Unit,
+    onAddOrUpdateProfile: (name: String, url: String, token: String, id: String?) -> Unit,
     onDeleteProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
     onDismiss: () -> Unit
 ) {
     var isAdding by remember { mutableStateOf(false) }
     var profileName by remember { mutableStateOf("") }
     var profileUrl by remember { mutableStateOf("http://192.168.18.11:8080") }
+    var profileToken by remember { mutableStateOf("") }
 
     Surface(modifier = Modifier.fillMaxSize(), color = BackgroundLight) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -2203,9 +2219,29 @@ fun ServerProfilesScreen(
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(profile.name, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(profile.name, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                        if (profile.token.isNotBlank()) {
+                                            Surface(
+                                                color = Accent.copy(alpha = 0.12f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    "Auth",
+                                                    fontSize = 10.sp,
+                                                    color = Accent,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         if (isActive) "Active" else "Use profile",
                                         fontSize = 12.sp,
@@ -2277,11 +2313,29 @@ fun ServerProfilesScreen(
                                     unfocusedBorderColor = BorderSubtle
                                 )
                             )
+                            OutlinedTextField(
+                                value = profileToken,
+                                onValueChange = { profileToken = it },
+                                label = { Text("API Token (DASHBOARD_TOKEN)") },
+                                placeholder = { Text("Optional - for remote/token-secured server") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedBorderColor = BorderSubtle,
+                                    unfocusedBorderColor = BorderSubtle
+                                )
+                            )
                             TextButton(
                                 onClick = {
                                     if (profileUrl.isNotBlank()) {
-                                        onAddOrUpdateProfile(profileName, profileUrl, null)
+                                        onAddOrUpdateProfile(profileName, profileUrl, profileToken, null)
                                         profileName = ""
+                                        profileToken = ""
                                         isAdding = false
                                     }
                                 },
@@ -2305,13 +2359,14 @@ fun ServerProfilesDialog(
     profiles: List<com.bookmedia.gallery.data.ServerProfile>,
     activeProfile: com.bookmedia.gallery.data.ServerProfile?,
     onSelectProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
-    onAddOrUpdateProfile: (name: String, url: String, id: String?) -> Unit,
+    onAddOrUpdateProfile: (name: String, url: String, token: String, id: String?) -> Unit,
     onDeleteProfile: (com.bookmedia.gallery.data.ServerProfile) -> Unit,
     onDismiss: () -> Unit
 ) {
     var isAdding by remember { mutableStateOf(false) }
     var profileName by remember { mutableStateOf("") }
     var profileUrl by remember { mutableStateOf("http://192.168.18.11:8080") }
+    var profileToken by remember { mutableStateOf("") }
 
     Surface(
         modifier = Modifier
@@ -2382,6 +2437,21 @@ fun ServerProfilesDialog(
                         )
                     )
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = profileToken,
+                        onValueChange = { profileToken = it },
+                        singleLine = true,
+                        placeholder = { Text("Optional DASHBOARD_TOKEN", color = TextSecondary, fontSize = 13.sp) },
+                        label = { Text("API Token") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Row(
@@ -2395,7 +2465,7 @@ fun ServerProfilesDialog(
                         TextButton(
                             onClick = {
                                 if (profileUrl.isNotBlank()) {
-                                    onAddOrUpdateProfile(profileName, profileUrl, null)
+                                    onAddOrUpdateProfile(profileName, profileUrl, profileToken, null)
                                     isAdding = false
                                 }
                             }

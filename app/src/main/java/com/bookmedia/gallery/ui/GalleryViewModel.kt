@@ -80,7 +80,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     val profilePrefs = ProfilePreferences(application)
     val mediaCacheManager = MediaCacheManager(application)
-    private val repository = BookmediaRepository(profilePrefs.getActiveProfile().url)
+    private val initialProfile = profilePrefs.getActiveProfile()
+    private val repository = BookmediaRepository(initialProfile.url, initialProfile.token)
 
     private val _rawItems = MutableStateFlow<List<ArchiveItem>>(emptyList())
     private val _selectedMediaFilter = MutableStateFlow(MediaFilter.ALL)
@@ -347,7 +348,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             viewModelScope.launch {
                 val item = _rawItems.value.firstOrNull { it.id == id }
                 if (item != null) {
-                    mediaCacheManager.cacheItemMedia(repository.getBaseUrl(), item)
+                    mediaCacheManager.cacheItemMedia(repository.getBaseUrl(), item, repository.getAuthToken())
                     refreshCacheSize()
                 }
             }
@@ -468,25 +469,29 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     // Profiles
     // ------------------------------------------------------------------
 
+    fun getAuthToken(): String = _activeProfile.value.token
+
     fun switchProfile(profileId: String) {
         val found = _profiles.value.firstOrNull { it.id == profileId } ?: return
         profilePrefs.setActiveProfileId(found.id)
         _activeProfile.value = found
         repository.updateBaseUrl(found.url)
+        repository.updateAuthToken(found.token)
         loadArchives()
         checkForUpdates(silent = true)
     }
 
-    fun addOrUpdateProfile(name: String, url: String, profileId: String? = null) {
+    fun addOrUpdateProfile(name: String, url: String, token: String = "", profileId: String? = null) {
         val sanitizedUrl = url.trim().trimEnd('/')
         val sanitizedName = name.trim().ifBlank { "Profile" }
+        val sanitizedToken = token.trim()
         if (sanitizedUrl.isBlank()) return
 
         val currentList = _profiles.value.toMutableList()
         val targetId = profileId ?: UUID.randomUUID().toString()
 
         val existingIndex = currentList.indexOfFirst { it.id == targetId }
-        val updatedProfile = ServerProfile(id = targetId, name = sanitizedName, url = sanitizedUrl)
+        val updatedProfile = ServerProfile(id = targetId, name = sanitizedName, url = sanitizedUrl, token = sanitizedToken)
 
         if (existingIndex >= 0) {
             currentList[existingIndex] = updatedProfile

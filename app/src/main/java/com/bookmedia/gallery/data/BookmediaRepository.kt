@@ -20,7 +20,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
-class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:8080") {
+class BookmediaRepository(
+    private var baseUrl: String = "http://192.168.18.11:8080",
+    private var authToken: String = ""
+) {
 
     @Serializable
     private data class ThumbnailResponse(
@@ -32,6 +35,18 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
             config {
                 connectTimeout(15, TimeUnit.SECONDS)
                 readTimeout(30, TimeUnit.SECONDS)
+                addInterceptor { chain ->
+                    val request = chain.request()
+                    val token = authToken.trim()
+                    val newRequest = if (token.isNotBlank()) {
+                        request.newBuilder()
+                            .header("Authorization", "Bearer $token")
+                            .build()
+                    } else {
+                        request
+                    }
+                    chain.proceed(newRequest)
+                }
             }
         }
         install(ContentNegotiation) {
@@ -49,6 +64,12 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
 
     fun getBaseUrl(): String = baseUrl
 
+    fun updateAuthToken(newToken: String) {
+        authToken = newToken.trim()
+    }
+
+    fun getAuthToken(): String = authToken
+
     suspend fun fetchArchives(): Result<List<ArchiveItem>> = withContext(Dispatchers.IO) {
         runCatching {
             val response: List<ArchiveItem> = client.get("$baseUrl/api/archives?sort=id&order=desc").body()
@@ -62,6 +83,10 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
             val connection = URL("$baseUrl/api/submit").openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            val token = authToken.trim()
+            if (token.isNotBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $token")
+            }
             connection.doOutput = true
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
@@ -102,6 +127,13 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
         }
     }
 
+    suspend fun checkAuthStatus(): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val response: String = client.get("$baseUrl/api/auth/status").body()
+            response.contains("\"authenticated\":true") || response.contains("\"authenticated\": true")
+        }
+    }
+
     suspend fun downloadApk(
         apkUrl: String,
         destinationFile: File,
@@ -123,6 +155,10 @@ class BookmediaRepository(private var baseUrl: String = "http://192.168.18.11:80
             connection.connectTimeout = 15000
             connection.readTimeout = 40000
             connection.instanceFollowRedirects = true
+            val token = authToken.trim()
+            if (token.isNotBlank()) {
+                connection.setRequestProperty("Authorization", "Bearer $token")
+            }
 
             if (connection.responseCode !in 200..299) {
                 throw IllegalStateException("Server returned HTTP ${connection.responseCode}")
